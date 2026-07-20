@@ -56,7 +56,7 @@ def parse_args():
     )
     parser.add_argument(
         "--postprocess_python",
-        default=r"D:\conda_envs\instantmesh2\python.exe",
+        default=sys.executable,
         help="Python executable with Pillow used for white compositing and Lanczos resize.",
     )
     parser.add_argument("--quality_report_samples", type=int, default=5)

@@ -19,7 +19,7 @@ from zero123plus.reference_adapter import (
 )
 from zero123plus.model import MVDiffusion
 from zero123plus.pipeline import DepthControlUNet
-from zero123plus.reference_smoke import _adapter_state_dict, run_post_train_reference_smoke_test
+from zero123plus.reference_post_training_check import _adapter_state_dict, run_post_train_reference_smoke_test
 from zero123plus.reference_utils import (
     infer_pose_from_filename,
     label_to_slot_weights,

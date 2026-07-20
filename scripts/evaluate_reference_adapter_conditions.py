@@ -1,3 +1,5 @@
+"""Compare reference-adapter inference conditions and per-slot output changes."""
+
 from __future__ import annotations
 
 import argparse
@@ -227,7 +229,7 @@ def run_condition(
     device,
     output_dir: Path,
 ):
-    from src.utils.reference_rerank import generate_zero123plus_candidate
+    from src.utils.infer_util import generate_zero123plus_candidate
     from zero123plus.reference_utils import (
         load_reference_images,
         references_to_pil,

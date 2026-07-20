@@ -128,7 +128,7 @@ def main():
         run_blender_wrapper(args)
         return
 
-    from scripts.render_reference_zero123plus_tiny import (
+    from scripts.render_reference_training_dataset import (
         clear_scene,
         compute_camera_radius,
         force_materials_opaque,

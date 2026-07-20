@@ -63,6 +63,24 @@ def resize_foreground(
     return new_image
 
 
+def generate_zero123plus_candidate(
+    pipeline,
+    input_image: PIL.Image.Image,
+    num_inference_steps: int,
+    device: torch.device,
+    seed: int,
+    **pipeline_kwargs,
+) -> PIL.Image.Image:
+    """Generate one Zero123++ output sheet with a deterministic seed."""
+    generator = torch.Generator(device=device).manual_seed(seed)
+    return pipeline(
+        input_image,
+        num_inference_steps=num_inference_steps,
+        generator=generator,
+        **pipeline_kwargs,
+    ).images[0]
+
+
 def images_to_video(
     images: torch.Tensor, 
     output_path: str, 

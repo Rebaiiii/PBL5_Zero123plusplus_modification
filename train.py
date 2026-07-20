@@ -376,7 +376,7 @@ if __name__ == "__main__":
         and bool(getattr(model, 'reference_post_train_smoke_test', False))
         and int(trainer.global_step) >= int(getattr(model, 'reference_post_train_smoke_steps', 0))
     ):
-        from zero123plus.reference_smoke import run_post_train_reference_smoke_test
+        from zero123plus.reference_post_training_check import run_post_train_reference_smoke_test
 
         checkpoint_path = getattr(model, 'reference_last_adapter_checkpoint_path', None)
         if checkpoint_path is None:

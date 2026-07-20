@@ -1,3 +1,5 @@
+"""Run the optional post-training reference-adapter comparison check."""
+
 import json
 import os
 from pathlib import Path

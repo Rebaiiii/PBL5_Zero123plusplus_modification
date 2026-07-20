@@ -21,15 +21,7 @@ from src.utils.camera_util import (
     get_circular_camera_poses,
 )
 from src.utils.mesh_util import save_obj, save_obj_with_mtl
-from src.utils.infer_util import remove_background, resize_foreground, save_video
-from src.utils.reference_rerank import (
-    generate_zero123plus_candidate,
-    load_reference_images,
-    log_candidate_scores,
-    log_reference_images,
-    parse_seed_list,
-    select_best_candidate,
-)
+from src.utils.infer_util import generate_zero123plus_candidate, remove_background, resize_foreground, save_video
 from zero123plus.reference_adapter import ReferenceAdapter
 from zero123plus.reference_utils import (
     load_reference_images as load_adapter_reference_images,
@@ -145,14 +137,10 @@ parser.add_argument('--no_rembg', action='store_true', help='Do not remove input
 parser.add_argument('--export_texmap', action='store_true', help='Export a mesh with texture map.')
 parser.add_argument('--save_video', action='store_true', help='Save a circular-view video.')
 parser.add_argument('--reference_images', '--rag_refs', dest='reference_images', type=str, default=None, help='Folder or image file containing references.')
-parser.add_argument('--reference_num_seeds', '--rag_num_seeds', dest='reference_num_seeds', type=int, default=4, help='Number of candidate seeds to try for reference reranking.')
-parser.add_argument('--reference_seeds', '--rag_seeds', dest='reference_seeds', type=str, default=None, help='Comma-separated candidate seeds for reference reranking, e.g. "0,1,2,3".')
 parser.add_argument('--reference_view_labels', '--rag_view_labels', dest='reference_view_labels', type=str, default=None, help='Optional JSON mapping reference filenames to front, side, back, or unknown.')
 parser.add_argument('--reference_metadata', '--rag_ref_metadata', dest='reference_metadata', type=str, default=None, help='JSON mapping reference filenames to azimuth and elevation.')
-parser.add_argument('--reference_weight', '--rag_weight', dest='reference_weight', type=float, default=0.2, help='Weight for reference CLIP score during reranking.')
 parser.add_argument('--reference_max_size', '--rag_max_size', dest='reference_max_size', type=int, default=1024, help='Maximum side length used when loading local reference images.')
-parser.add_argument('--disable_reference', '--disable_rag', dest='disable_reference', action='store_true', help='Disable reference conditioning and reranking.')
-parser.add_argument('--enable_reference_adapter', '--enable_rag_adapter', dest='enable_reference_adapter', action='store_true', help='Use the experimental view-aware reference token adapter instead of reranking.')
+parser.add_argument('--enable_reference_adapter', '--enable_rag_adapter', dest='enable_reference_adapter', action='store_true', help='Enable the experimental view-aware reference token adapter.')
 parser.add_argument('--reference_adapter_ckpt', '--rag_adapter_ckpt', dest='reference_adapter_ckpt', type=str, default=None, help='Path to a trained reference adapter checkpoint or state_dict.')
 parser.add_argument('--reference_token_scale', '--rag_token_scale', dest='reference_token_scale', type=float, default=0.1, help='Scale for routed reference adapter slot tokens.')
 parser.add_argument('--reference_global_scale', '--rag_global_scale', dest='reference_global_scale', type=float, default=0.05, help='Scale for weak global reference identity token.')
@@ -238,7 +226,7 @@ pipeline.unet.load_state_dict(state_dict, strict=True)
 
 pipeline = pipeline.to(device)
 reference_adapter = None
-if args.enable_reference_adapter and not args.disable_reference:
+if args.enable_reference_adapter:
     embed_dim = getattr(pipeline.vision_encoder.config, "projection_dim", None)
     if embed_dim is None:
         embed_dim = getattr(pipeline.vision_encoder.config, "hidden_size", None)
@@ -310,47 +298,8 @@ for idx, image_file in enumerate(input_files):
         input_image = resize_foreground(input_image, 0.85)
 
     # sampling
-    use_reference_adapter = args.enable_reference_adapter and args.reference_images is not None and not args.disable_reference
-    use_reference_rerank = args.reference_images is not None and not args.disable_reference and not use_reference_adapter
-    if use_reference_rerank:
-        references = load_reference_images(
-            args.reference_images,
-            view_labels_path=args.reference_view_labels,
-            max_image_size=args.reference_max_size,
-        )
-        if not references:
-            raise ValueError(f"No reference images found for reference reranking: {args.reference_images}")
-
-        # Safe reference baseline: references are used only after generation to select
-        # the best candidate sheet. They are never injected into Zero123++ image,
-        # latent, CLIP, ControlNet, other image-conditioning, camera, or layout conditioning.
-        print(f"[REFERENCE-RERANK] input={image_file}")
-        log_reference_images(references)
-        candidate_seeds = parse_seed_list(args.reference_seeds, args.seed, args.reference_num_seeds)
-        candidates = []
-        for candidate_seed in candidate_seeds:
-            print(f"[REFERENCE-RERANK] generating seed={candidate_seed}")
-            candidate_image = generate_zero123plus_candidate(
-                pipeline,
-                input_image,
-                args.diffusion_steps,
-                device,
-                candidate_seed,
-            )
-            candidates.append((candidate_seed, candidate_image))
-
-        output_image, best_score, candidate_scores = select_best_candidate(
-            candidates,
-            input_image,
-            references,
-            pipeline.feature_extractor_clip,
-            pipeline.vision_encoder,
-            device,
-            reference_weight=args.reference_weight,
-        )
-        log_candidate_scores(candidate_scores)
-        print(f"[REFERENCE-RERANK] selected_seed={best_score.seed} selected_score={best_score.total_score:.4f}")
-    elif use_reference_adapter:
+    use_reference_adapter = args.enable_reference_adapter and args.reference_images is not None
+    if use_reference_adapter:
         references = load_adapter_reference_images(
             args.reference_images,
             view_labels_path=args.reference_view_labels,
@@ -454,9 +403,8 @@ torch.cuda.empty_cache()
 # Stage 2: Reconstruction.
 ###############################################################################
 
-# Load the reconstruction model only after Zero123++ generation/reranking is
-# complete. This keeps reference candidate generation from holding both large models in
-# GPU memory at the same time.
+# Load the reconstruction model only after Zero123++ generation is complete so
+# both large models do not occupy GPU memory at the same time.
 print('Loading reconstruction model ...')
 model = instantiate_from_config(model_config)
 if os.path.exists(infer_config.model_path):

@@ -13,14 +13,8 @@ This project adds explicit side/back reference images to that stage. A small tra
 
 ```text
 Main input image
-        +
-Additional reference-view images
-        +
-Camera-view metadata
         ↓
-Reference adapter
-        ↓
-Zero123++ with spatially gated reference conditioning
+Zero123++ with spatially gated reference conditioning <- Reference Adapter <- Additional Reference Image + Camera view metadata
         ↓
 Six-view 3×2 sheet
         ↓
@@ -29,13 +23,13 @@ InstantMesh reconstruction model
 3D mesh
 ```
 
-The core contribution is **reference-guided hidden-view generation for Zero123++ using a lightweight adapter, explicit camera-view metadata, and spatial gating**. It is not an automatic retrieval system: reference images and their metadata are supplied by the user or dataset. The repository also retains a separate CLIP-based multi-seed reranking baseline, but retrieval itself is not implemented.
+The core contribution is **reference-guided hidden-view generation for Zero123++ using a lightweight adapter, explicit camera-view metadata, and spatial gating**. It is not an automatic retrieval system: reference images and their metadata are supplied by the user or dataset.
 
 ## Based on InstantMesh
 
 The original image-to-3D pipeline, reconstruction model, project structure, and major supporting components come from Tencent ARC's InstantMesh. This repository does not claim ownership of the InstantMesh architecture or implementation.
 
-The changes in this repository are focused on the reference adapter, view-aware conditioning, spatial gating, adapter-only training/checkpointing, dataset preparation utilities, ablation tools, and related experiments. Users of this work should cite the original InstantMesh paper and repository and comply with the licenses for InstantMesh, Zero123++, all pretrained models, and their datasets.
+The changes in this repository are focused on the reference adapter, view-aware conditioning, spatial gating, adapter-only training/checkpointing, dataset preparation utilities, condition-comparison tools, and related experiments. Users of this work should cite the original InstantMesh paper and repository and comply with the licenses for InstantMesh, Zero123++, all pretrained models, and their datasets.
 
 - Official repository: [TencentARC/InstantMesh](https://github.com/TencentARC/InstantMesh)
 - Paper: [InstantMesh: Efficient 3D Mesh Generation from a Single Image with Sparse-view Large Reconstruction Models](https://arxiv.org/abs/2404.07191)
@@ -96,9 +90,11 @@ Only the adapter state is saved by the adapter-only checkpoint callback.
 | [`zero123plus/model.py`](zero123plus/model.py) | Adapter-only training, frozen encoders/UNet, spatially gated prediction, validation, and metrics |
 | [`zero123plus/pipeline.py`](zero123plus/pipeline.py) | Reference-aware Zero123++ inference path |
 | [`zero123plus/reference_utils.py`](zero123plus/reference_utils.py) | Reference loading, metadata parsing, target poses, and slot-weight computation |
-| [`run.py`](run.py) | Full Zero123++ → InstantMesh inference, including adapter and reranking modes |
+| [`run.py`](run.py) | Full Zero123++ → InstantMesh inference with optional reference-adapter conditioning |
 | [`scripts/build_objaverse_reference_dataset.py`](scripts/build_objaverse_reference_dataset.py) | Rendering and manifest construction from local 3D assets or Objaverse-style metadata |
-| [`scripts/eval_reference_adapter_ablation.py`](scripts/eval_reference_adapter_ablation.py) | Controlled Zero123++ sheet ablations and per-slot difference metrics |
+| [`scripts/render_single_reference_example.py`](scripts/render_single_reference_example.py) | Render one model into an input image and three reference views for a quick inference example |
+| [`scripts/render_reference_training_dataset.py`](scripts/render_reference_training_dataset.py) | Batch-render models into condition, six-target, reference, metadata, and quality files for training |
+| [`scripts/evaluate_reference_adapter_conditions.py`](scripts/evaluate_reference_adapter_conditions.py) | Compare reference-adapter conditions and report per-slot pixel differences |
 | [`tests/`](tests/) | Unit tests for routing, layout, dataset tools, rendering helpers, and validation scheduling |
 
 ## Installation
@@ -167,17 +163,6 @@ python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
 python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png --save_video
 ```
 
-### Separate reranking baseline
-
-The repository also contains a non-training baseline that generates several ordinary Zero123++ sheets and selects one using CLIP similarity to the main image and supplied references. It does **not** inject reference features into Zero123++:
-
-```bash
-python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
-  --reference_images path/to/references \
-  --reference_num_seeds 4 \
-  --reference_weight 0.2
-```
-
 ## Training
 
 ### Dataset preparation
@@ -226,10 +211,10 @@ Adapter checkpoints are configured at steps 437, 874, 1311, 1748, and 2185, foll
 
 ## Evaluation
 
-The ablation script compares ordinary Zero123++, the trained adapter with no references, correct references, an optional earlier checkpoint, and optional incorrect references. Keep the same seed across conditions so changes are attributable to conditioning rather than sampling.
+The condition-comparison script compares ordinary Zero123++, the trained adapter with no references, correct references, an optional earlier checkpoint, and optional incorrect references. Keep the same seed across conditions so changes are attributable to conditioning rather than sampling.
 
 ```bash
-python scripts/eval_reference_adapter_ablation.py \
+python scripts/evaluate_reference_adapter_conditions.py \
   --config configs/instant-mesh-large-lowvram.yaml \
   --input path/to/main.png \
   --reference_images path/to/references \

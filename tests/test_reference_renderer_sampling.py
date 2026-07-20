@@ -2,7 +2,7 @@ import random
 import unittest
 from types import SimpleNamespace
 
-from scripts.render_reference_zero123plus_tiny import (
+from scripts.render_reference_training_dataset import (
     build_rendered_views,
     ref_filename,
     resolve_model_render_options,
