@@ -324,42 +324,6 @@ Reference-guided Zero123++ generation
 
 Candidate systems could combine CLIP or DINOv2 embeddings, image/text retrieval, local vector search, feature matching, segmentation, duplicate removal, viewpoint classification, and identity-confidence scoring. Ranking should balance two understandable criteria: **identity similarity**, meaning that colors, shape, texture, markings, accessories, and product or character identity agree; and **complementary-view usefulness**, meaning that the candidate exposes a side, back, accessory, pattern, logo, tail, or other detail absent from the input. Different objects, conflicting variants, severe occlusions, unreliable viewpoints, near-duplicates, and candidates with no new information should be rejected.
 
-### 4. Improve robustness to unsuitable references
-
-Automatically found references may be noisy, incorrect, or contradictory. Future experiments could use wrong-reference negative examples, shuffled-reference training, reference dropout, validity prediction, confidence-weighted conditioning, conflict detection, and consistency checks. Low-confidence tokens should be ignorable, reference influence should be bounded, and the system should fall back to the original Zero123++ prediction when a reference is unreliable rather than forcing incorrect details into the object.
-
-### 5. Replace fixed spatial gating with learned routing
-
-The current mask divides the latent sheet into six fixed regions:
-
-```text
-[30°  | 90° ]
-[150° | 210°]
-[270° | 330°]
-```
-
-Future work could replace metadata-derived `ref_slot_weights` with learned soft masks, view-conditioned or cross-view attention, token-level routing, global object tokens, local detail tokens, and attention-based spatial relevance. Such routing should learn which reference and object region matter to each output, how far a detail should propagate, and when guidance should be global or ignored—all while preventing view-specific details from appearing in the wrong place.
-
-### 6. Improve cross-view consistency
-
-The current adapter can emphasize the closest output tiles, but it does not guarantee that a feature remains visible in every compatible view. Cross-view attention, shared object representations, multi-view feature propagation, geometry-aware conditioning, consistency losses, camera-aware constraints, joint generation, or 3D-aware fusion could help the model learn that an object *has* a feature rather than copying it only into the tile nearest the reference angle.
-
-### 7. Expand and diversify the training data
-
-Future datasets should cover more toys, plushies, object categories, materials, textures, complex hidden details, multiple references, and imperfect real-world images. Evaluation should use object-level train/validation/test splits and an independent external test set. Objaverse-style data may overlap with the distribution used to train the original Zero123++ model, so it cannot by itself support strong out-of-distribution generalization claims.
-
-### 8. Select checkpoints and conditioning strength automatically
-
-The committed log shows the lowest validation loss after epoch 3, followed by higher losses at epochs 4 and 5; it does not include a user study or prove that epoch 3 has the best perceptual quality. Future work should use held-out perceptual or geometry metrics, human preferences, early stopping, per-object scale tuning, per-reference confidence weights, and distortion-aware regularization. The final training checkpoint should not automatically be assumed to be the best one.
-
-### 9. Add more complete automatic evaluation
-
-Generated views could be evaluated with LPIPS, SSIM, PSNR, DreamSim-like perceptual measures, identity/feature similarity, per-view scores, and hidden-view-only scores. When matching 3D ground truth exists, mesh evaluation could include Chamfer distance, F-score, normal consistency, silhouette consistency, and multi-view rendering similarity. Retrieval evaluation should measure same-object accuracy, viewpoint accuracy, side/back precision, useful-reference recall, rejection of incorrect candidates, and ranking quality. Robustness comparisons should cover correct, wrong, unrelated, metadata-shuffled, absent, automatically retrieved, and manually selected references.
-
-### 10. Conduct a full ablation study
-
-A future ablation should compare original Zero123++, the current custom adapter with and without gating, local and wide routing, a true IP-Adapter, manual versus automatic reference selection, automatic routing, and incorrect-reference suppression. The study should isolate contributions to hidden-view quality, identity, distortion, cross-view consistency, and final 3D reconstruction quality. The current `eval_reference_adapter_ablation.py` utility covers only a subset of these conditions and reports pixel-difference diagnostics rather than a complete perceptual or 3D study.
-
 ### Long-term target system
 
 ```text
