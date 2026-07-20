@@ -16,6 +16,32 @@ COARSE_TO_STRONG_SLOTS = {
 }
 
 
+def extract_reference_adapter_state_dict(checkpoint):
+    """Extract adapter weights from current, legacy, or direct state dictionaries."""
+    state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
+    if not isinstance(state_dict, dict):
+        raise TypeError("reference adapter checkpoint must be a state_dict or contain a 'state_dict' entry.")
+
+    prefixes = (
+        "reference_adapter.",
+        "model.reference_adapter.",
+        "rag_adapter.",
+        "model.rag_adapter.",
+    )
+    adapter_state = {}
+    for key, value in state_dict.items():
+        for prefix in prefixes:
+            if key.startswith(prefix):
+                adapter_state[key[len(prefix):]] = value
+                break
+
+    if adapter_state:
+        return adapter_state
+    if any(key.startswith(("ref_proj.", "view_embed.")) for key in state_dict):
+        return state_dict
+    raise ValueError("No reference adapter weights found in checkpoint.")
+
+
 def map_coarse_label_to_slot_weights(
     ref_view_ids: torch.Tensor,
     match_scale: float = 1.0,

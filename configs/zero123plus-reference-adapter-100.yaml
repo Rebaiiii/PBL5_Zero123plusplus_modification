@@ -18,13 +18,6 @@ model:
     reference_debug_metrics_enabled: true
     reference_debug_metrics_interval: 20
     reference_debug_metrics_filename: reference_debug_metrics.jsonl
-    reference_post_train_smoke_test: true
-    reference_post_train_smoke_steps: 100
-    reference_smoke_test_cond_image: images/nice.jpg
-    reference_smoke_test_reference_dir: folder
-    reference_smoke_test_metadata: folder/ref_metadata.json
-    reference_smoke_test_num_inference_steps: 15
-    reference_smoke_test_seed: 42
     train_debug_image_interval: 200
 
     stable_diffusion_config:

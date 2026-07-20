@@ -5,6 +5,7 @@ import json
 import math
 import os
 import random
+import shlex
 import shutil
 import subprocess
 import sys
@@ -67,7 +68,11 @@ def parse_args(argv=None):
     parser.add_argument("--metadata_path", default=None, help="Optional Objaverse-style metadata JSON/JSONL.")
     parser.add_argument("--download_objaverse", action="store_true", help="Download Objaverse assets matching the keyword filter before rendering.")
     parser.add_argument("--download_only", action="store_true", help="Only download Objaverse assets and write metadata; do not build manifests.")
-    parser.add_argument("--objaverse_cache_dir", default=r"D:\objaverse_cache", help="Objaverse package cache directory.")
+    parser.add_argument(
+        "--objaverse_cache_dir",
+        default="data/objaverse_cache",
+        help="Objaverse package cache directory (default: data/objaverse_cache).",
+    )
     parser.add_argument("--objaverse_download_processes", type=int, default=4)
     parser.add_argument("--objaverse_candidate_pool", type=int, default=3000, help="Maximum matching Objaverse annotations to consider before sampling/downloading.")
     parser.add_argument(
@@ -104,8 +109,7 @@ def parse_args(argv=None):
     argv = _blender_argv(argv)
     args = parser.parse_args(argv)
     if args.postprocess_python is None:
-        preferred = Path(r"D:\conda_envs\instantmesh2\python.exe")
-        args.postprocess_python = str(preferred) if preferred.exists() else sys.executable
+        args.postprocess_python = sys.executable
     return args
 
 
@@ -243,7 +247,7 @@ def download_objaverse_assets(args) -> Path:
         ) from exc
 
     if not args.source_dir:
-        raise RuntimeError("--download_objaverse requires --source_dir so downloaded asset metadata has a stable D: location.")
+        raise RuntimeError("--download_objaverse requires --source_dir so downloaded assets have a stable local location.")
     os.environ.setdefault("OBJAVERSE_HOME", str(args.objaverse_cache_dir))
     source_dir = Path(args.source_dir)
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -925,7 +929,7 @@ def build_dataset(args) -> Dict:
 def print_summary(report: Dict) -> None:
     splits = report["splits"]
     output_root = str(report["output_root"])
-    if report.get("max_objects_requested") == 500 or output_root.endswith("reference_zero123plus_objaverse_toys_500"):
+    if report.get("max_objects_requested") == 500:
         train_config = "configs/zero123plus-reference-adapter-objaverse-wide-500obj-500steps-val.yaml"
     else:
         train_config = "configs/zero123plus-reference-adapter-objaverse-wide-1000.yaml"
@@ -953,18 +957,37 @@ def main(argv=None):
             return 2
         args.metadata_path = str(metadata_path)
         if args.download_only:
-            seed_dataset_root = args.seed_dataset_root or r"D:\InstantMesh2\data\reference_zero123plus_tiny"
+            command = [
+                args.blender_path,
+                "--background",
+                "--python",
+                "scripts/build_objaverse_reference_dataset.py",
+                "--",
+                "--output_root",
+                str(args.output_root),
+                "--source_dir",
+                str(args.source_dir),
+                "--metadata_path",
+                str(metadata_path),
+                "--max_objects",
+                str(args.max_objects),
+                "--train_ratio",
+                str(args.train_ratio),
+                "--val_ratio",
+                str(args.val_ratio),
+                "--test_ratio",
+                str(args.test_ratio),
+                "--image_size",
+                str(args.image_size),
+                "--postprocess_python",
+                str(args.postprocess_python),
+            ]
+            if args.seed_dataset_root:
+                command.extend(["--seed_dataset_root", str(args.seed_dataset_root)])
+            if args.render_white_background:
+                command.append("--render_white_background")
             print("[objaverse-reference] download_only=true; run Blender next with:")
-            print(
-                "& \"C:\\Program Files\\Blender Foundation\\Blender 4.4\\blender.exe\" "
-                "--background --python scripts\\build_objaverse_reference_dataset.py -- "
-                f"--output_root {args.output_root} "
-                f"--seed_dataset_root {seed_dataset_root} "
-                f"--source_dir {args.source_dir} "
-                f"--metadata_path {metadata_path} "
-                "--max_objects 500 --train_ratio 0.9 --val_ratio 0.1 --render_white_background --image_size 320 "
-                "--postprocess_python D:\\conda_envs\\instantmesh2\\python.exe"
-            )
+            print(shlex.join(command))
             return 0
     try:
         report = build_dataset(args)

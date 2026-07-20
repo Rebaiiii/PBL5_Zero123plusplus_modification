@@ -350,7 +350,6 @@ if __name__ == "__main__":
     rank_zero_print(f"[REFERENCE-ADAPTER] trainable parameter count: {trainable_count}")
     rank_zero_print(f"[REFERENCE-ADAPTER] spatial_gating: {bool(getattr(model, 'reference_spatial_gating', False))}")
     rank_zero_print(f"[REFERENCE-ADAPTER] periodic tensor metrics: {bool(getattr(model, 'reference_debug_metrics_enabled', False))}; interval={int(getattr(model, 'reference_debug_metrics_interval', 0))}")
-    rank_zero_print(f"[REFERENCE-ADAPTER] post-train smoke test: {bool(getattr(model, 'reference_post_train_smoke_test', False))}")
     rank_zero_print("[REFERENCE-ADAPTER] auto_view_assignment: disabled")
 
     # configure learning rate
@@ -370,29 +369,3 @@ if __name__ == "__main__":
         trainer.fit(model, data, ckpt_path=opt.resume)
     else:
         trainer.fit(model, data)
-
-    if (
-        trainer.global_rank == 0
-        and bool(getattr(model, 'reference_post_train_smoke_test', False))
-        and int(trainer.global_step) >= int(getattr(model, 'reference_post_train_smoke_steps', 0))
-    ):
-        from zero123plus.reference_post_training_check import run_post_train_reference_smoke_test
-
-        checkpoint_path = getattr(model, 'reference_last_adapter_checkpoint_path', None)
-        if checkpoint_path is None:
-            candidate = os.path.join(logdir, 'adapter_checkpoints', 'adapter_last.pt')
-            checkpoint_path = candidate if os.path.exists(candidate) else None
-        try:
-            run_post_train_reference_smoke_test(model, checkpoint_path=checkpoint_path)
-        except Exception as error:
-            smoke_dir = os.path.join(logdir, 'reference_smoke_test')
-            os.makedirs(smoke_dir, exist_ok=True)
-            failure_report = {
-                'verdict': 'FAIL',
-                'error': f'{type(error).__name__}: {error}',
-                'adapter_checkpoint_used': checkpoint_path,
-            }
-            with open(os.path.join(smoke_dir, 'difference_report.json'), 'w', encoding='utf-8') as handle:
-                import json
-                json.dump(failure_report, handle, indent=2, sort_keys=True)
-            rank_zero_warn(f"reference post-train smoke test failed: {type(error).__name__}: {error}")

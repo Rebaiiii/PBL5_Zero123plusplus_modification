@@ -20,9 +20,6 @@ model:
     reference_cross_view_propagation_enabled: true
     reference_cross_view_propagation_strength: 0.3
     reference_cross_view_neighbor_degrees: 120
-    reference_negative_reference_training_enabled: false
-    reference_negative_reference_prob: 0.0
-    reference_incorrect_reference_suppression_weight: 0.0
     reference_train_adapter_only: true
     reference_unfreeze_crossattn: false
     reference_spatial_gating: true
@@ -31,13 +28,6 @@ model:
     reference_debug_metrics_enabled: true
     reference_debug_metrics_interval: 25
     reference_debug_metrics_filename: reference_debug_metrics.jsonl
-    reference_post_train_smoke_test: true
-    reference_post_train_smoke_steps: 100
-    reference_smoke_test_cond_image: images/nice.jpg
-    reference_smoke_test_reference_dir: folder
-    reference_smoke_test_metadata: folder/ref_metadata.json
-    reference_smoke_test_num_inference_steps: 15
-    reference_smoke_test_seed: 42
     reference_validation_num_inference_steps: 15
     train_debug_image_interval: 250
 

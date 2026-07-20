@@ -71,14 +71,6 @@ class MVDiffusion(pl.LightningModule):
         reference_debug_metrics_enabled=False,
         reference_debug_metrics_interval=20,
         reference_debug_metrics_filename='reference_debug_metrics.jsonl',
-        reference_post_train_smoke_test=False,
-        reference_post_train_smoke_steps=0,
-        reference_smoke_test_cond_image=None,
-        reference_smoke_test_reference_dir=None,
-        reference_smoke_test_metadata=None,
-        reference_smoke_test_num_inference_steps=15,
-        reference_smoke_test_seed=42,
-        reference_smoke_test_difference_threshold=1e-5,
         reference_validation_num_inference_steps=75,
         reference_validation_generate_images=True,
         reference_slot_weight_mode='local',
@@ -89,9 +81,6 @@ class MVDiffusion(pl.LightningModule):
         reference_cross_view_propagation_enabled=False,
         reference_cross_view_propagation_strength=0.3,
         reference_cross_view_neighbor_degrees=120.0,
-        reference_negative_reference_training_enabled=False,
-        reference_negative_reference_prob=0.0,
-        reference_incorrect_reference_suppression_weight=0.0,
     ):
         super(MVDiffusion, self).__init__()
 
@@ -118,14 +107,6 @@ class MVDiffusion(pl.LightningModule):
         self.reference_debug_metrics_enabled = bool(reference_debug_metrics_enabled or reference_debug_dump)
         self.reference_debug_metrics_interval = max(1, int(reference_debug_metrics_interval))
         self.reference_debug_metrics_filename = str(reference_debug_metrics_filename)
-        self.reference_post_train_smoke_test = bool(reference_post_train_smoke_test)
-        self.reference_post_train_smoke_steps = max(0, int(reference_post_train_smoke_steps))
-        self.reference_smoke_test_cond_image = reference_smoke_test_cond_image
-        self.reference_smoke_test_reference_dir = reference_smoke_test_reference_dir
-        self.reference_smoke_test_metadata = reference_smoke_test_metadata
-        self.reference_smoke_test_num_inference_steps = int(reference_smoke_test_num_inference_steps)
-        self.reference_smoke_test_seed = int(reference_smoke_test_seed)
-        self.reference_smoke_test_difference_threshold = float(reference_smoke_test_difference_threshold)
         self.reference_validation_num_inference_steps = int(reference_validation_num_inference_steps)
         self.reference_validation_generate_images = bool(reference_validation_generate_images)
         self.reference_slot_weight_mode = str(reference_slot_weight_mode)
@@ -136,9 +117,6 @@ class MVDiffusion(pl.LightningModule):
         self.reference_cross_view_propagation_enabled = bool(reference_cross_view_propagation_enabled)
         self.reference_cross_view_propagation_strength = float(reference_cross_view_propagation_strength)
         self.reference_cross_view_neighbor_degrees = float(reference_cross_view_neighbor_degrees)
-        self.reference_negative_reference_training_enabled = bool(reference_negative_reference_training_enabled)
-        self.reference_negative_reference_prob = float(reference_negative_reference_prob)
-        self.reference_incorrect_reference_suppression_weight = float(reference_incorrect_reference_suppression_weight)
         self._reference_batch_debug_printed = False
         self._reference_optimizer_debug_printed = False
         self._reference_grad_debug_printed = False
@@ -350,43 +328,6 @@ class MVDiffusion(pl.LightningModule):
             )
         return reference_tokens
 
-    def _build_negative_reference_tokens(self, batch):
-        if (
-            not self.enable_reference_adapter
-            or self.reference_adapter is None
-            or 'ref_imgs' not in batch
-            or self.reference_incorrect_reference_suppression_weight <= 0.0
-        ):
-            return None, None
-        if torch.rand((), device=self.device).item() >= self.reference_negative_reference_prob:
-            return None, None
-
-        ref_imgs = batch['ref_imgs']
-        if ref_imgs.shape[0] < 2 and self.reference_negative_reference_training_enabled:
-            return None, None
-
-        negative_batch = dict(batch)
-        if self.reference_negative_reference_training_enabled:
-            negative_batch['ref_imgs'] = torch.roll(ref_imgs, shifts=1, dims=0)
-            if 'ref_valid_mask' in batch:
-                negative_batch['ref_valid_mask'] = torch.roll(batch['ref_valid_mask'], shifts=1, dims=0)
-            if 'ref_view_labels' in batch:
-                negative_batch['ref_view_labels'] = torch.roll(batch['ref_view_labels'], shifts=1, dims=0)
-            if 'ref_slot_weights' in batch:
-                negative_batch['ref_slot_weights'] = torch.roll(batch['ref_slot_weights'], shifts=1, dims=0)
-        else:
-            return None, None
-
-        negative_slot_weights = negative_batch.get('ref_slot_weights', None)
-        if negative_slot_weights is not None:
-            negative_slot_weights = negative_slot_weights.to(self.device, dtype=torch.float32)
-            valid_mask = negative_batch.get('ref_valid_mask', None)
-            if valid_mask is not None:
-                negative_slot_weights = negative_slot_weights * valid_mask.to(
-                    self.device, dtype=negative_slot_weights.dtype
-                ).unsqueeze(-1)
-        return self.build_reference_tokens(negative_batch), negative_slot_weights
-    
     @torch.no_grad()
     def encode_condition_image(self, images):
         dtype = next(self.pipeline.vae.parameters()).dtype
@@ -621,29 +562,6 @@ class MVDiffusion(pl.LightningModule):
 
         loss, loss_dict = self.compute_loss(v_pred, v_target)
 
-        wrong_reference_tokens, wrong_slot_weights = self._build_negative_reference_tokens(batch)
-        if wrong_reference_tokens is not None:
-            suppression_noise = torch.randn_like(cond_latents)
-            base_pred = self.forward_unet(
-                latents_noisy,
-                t,
-                prompt_embeds,
-                cond_latents,
-                reference_tokens=None,
-                condition_noise=suppression_noise,
-            )
-            wrong_pred = self.forward_unet(
-                latents_noisy,
-                t,
-                prompt_embeds,
-                cond_latents,
-                reference_tokens=wrong_reference_tokens,
-                condition_noise=suppression_noise,
-            )
-            wrong_loss = F.l1_loss(wrong_pred, base_pred.detach())
-            loss = loss + self.reference_incorrect_reference_suppression_weight * wrong_loss
-            loss_dict['train/reference_incorrect_reference_suppression_loss'] = wrong_loss
-
         if self._reference_forward_debug_metrics is not None:
             ref_valid_mask = batch.get('ref_valid_mask', None)
             if ref_valid_mask is None and 'ref_imgs' in batch:
@@ -864,8 +782,6 @@ class MVDiffusion(pl.LightningModule):
 
     def _prepare_validation_generation_devices(self):
         target_device = self.device
-        if torch.cuda.is_available():
-            target_device = torch.device('cuda:0')
         self.pipeline.to(target_device)
         if self.reference_adapter is not None:
             self.reference_adapter.to(target_device)

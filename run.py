@@ -22,42 +22,13 @@ from src.utils.camera_util import (
 )
 from src.utils.mesh_util import save_obj, save_obj_with_mtl
 from src.utils.infer_util import generate_zero123plus_candidate, remove_background, resize_foreground, save_video
-from zero123plus.reference_adapter import ReferenceAdapter
+from zero123plus.reference_adapter import ReferenceAdapter, extract_reference_adapter_state_dict
 from zero123plus.reference_utils import (
     load_reference_images as load_adapter_reference_images,
     references_to_pil,
     references_to_slot_weights,
     references_to_view_ids,
 )
-
-
-def extract_reference_adapter_state_dict(checkpoint):
-    state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
-    if not isinstance(state_dict, dict):
-        raise TypeError("reference adapter checkpoint must be a state_dict or contain a 'state_dict' entry.")
-
-    prefixes = (
-        "reference_adapter.",
-        "model.reference_adapter.",
-        "rag_adapter.",
-        "model.rag_adapter.",
-    )
-    adapter_state = {}
-    for key, value in state_dict.items():
-        for prefix in prefixes:
-            if key.startswith(prefix):
-                adapter_state[key[len(prefix):]] = value
-                break
-
-    if adapter_state:
-        return adapter_state
-
-    # Also support direct ReferenceAdapter state_dict files.
-    direct_prefixes = ("ref_proj.", "view_embed.")
-    if any(key.startswith(direct_prefixes) for key in state_dict):
-        return state_dict
-
-    raise ValueError("No reference adapter weights found in checkpoint.")
 
 
 def load_reference_adapter_checkpoint(adapter, checkpoint_path, device):

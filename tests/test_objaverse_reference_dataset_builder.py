@@ -12,6 +12,7 @@ from scripts.build_objaverse_reference_dataset import (
     TARGET_POSES,
     build_dataset,
     load_metadata_records,
+    parse_args,
     readable_objaverse_id,
     split_records,
 )
@@ -80,6 +81,12 @@ def read_jsonl(path):
 
 
 class ObjaverseReferenceDatasetBuilderTest(unittest.TestCase):
+    def test_portable_command_defaults(self):
+        args = parse_args([])
+
+        self.assertEqual(args.objaverse_cache_dir, "data/objaverse_cache")
+        self.assertTrue(Path(args.postprocess_python).name.startswith("python"))
+
     def test_metadata_parsing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             path = Path(tmpdir) / "metadata.jsonl"

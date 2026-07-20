@@ -16,10 +16,10 @@ from zero123plus.reference_adapter import (
     map_coarse_label_to_slot_weights,
     maybe_unfreeze_cross_attention,
     ref_slot_weights_to_spatial_mask,
+    extract_reference_adapter_state_dict,
 )
 from zero123plus.model import MVDiffusion
 from zero123plus.pipeline import DepthControlUNet
-from zero123plus.reference_post_training_check import _adapter_state_dict, run_post_train_reference_smoke_test
 from zero123plus.reference_utils import (
     infer_pose_from_filename,
     label_to_slot_weights,
@@ -33,7 +33,7 @@ from zero123plus.reference_utils import (
 class ReferenceAdapterTest(unittest.TestCase):
     def test_legacy_checkpoint_prefix_is_still_accepted(self):
         weight = torch.randn(2, 2)
-        state = _adapter_state_dict({"state_dict": {"rag_adapter.ref_proj.0.weight": weight}})
+        state = extract_reference_adapter_state_dict({"state_dict": {"rag_adapter.ref_proj.0.weight": weight}})
 
         self.assertEqual(list(state), ["ref_proj.0.weight"])
         self.assertIs(state["ref_proj.0.weight"], weight)
@@ -324,87 +324,6 @@ class ReferenceAdapterTest(unittest.TestCase):
         output.sum().backward()
         self.assertGreater(MVDiffusion._module_grad_norm(adapter, "ref_proj"), 0.0)
         self.assertGreater(MVDiffusion._module_grad_norm(adapter, "view_embed"), 0.0)
-
-    def test_post_train_smoke_writes_ablation_outputs_and_report(self):
-        class FakePipeline:
-            def __init__(self):
-                self.unet = nn.Identity()
-                self.device = None
-
-            def to(self, device):
-                self.device = torch.device(device)
-                self.unet.to(device)
-                return self
-
-            def __call__(self, image, **kwargs):
-                refs = kwargs.get("reference_images") or []
-                slot_weights = kwargs.get("reference_slot_weights") or []
-                value = 0
-                for index, ref in enumerate(refs):
-                    value += (index + 1) * int(torch.tensor(list(ref.convert("RGB").getdata())[0]).sum().item())
-                value += int(10 * sum(sum(weights) for weights in slot_weights))
-                value = value % 256
-                return SimpleNamespace(images=[Image.new("RGB", (8, 12), (value, value, value))])
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            root = Path(tmpdir)
-            refs = root / "refs"
-            refs.mkdir()
-            Image.new("RGB", (8, 8), (10, 0, 0)).save(refs / "ref_a.png")
-            Image.new("RGB", (8, 8), (0, 0, 200)).save(refs / "ref_b.png")
-            cond_path = root / "cond.png"
-            Image.new("RGB", (8, 8), "white").save(cond_path)
-            metadata_path = root / "metadata.json"
-            metadata_path.write_text(json.dumps({
-                "ref_a.png": {"azimuth": 30, "elevation": 20},
-                "ref_b.png": {"azimuth": 210, "elevation": -10},
-            }), encoding="utf-8")
-            adapter = ReferenceAdapter(embed_dim=8)
-            checkpoint_path = root / "adapter_last.pt"
-            torch.save({
-                "state_dict": {
-                    f"reference_adapter.{name}": tensor.detach().clone()
-                    for name, tensor in adapter.state_dict().items()
-                }
-            }, checkpoint_path)
-            pipeline = FakePipeline()
-            model = SimpleNamespace(
-                logdir=str(root / "logs"),
-                reference_adapter=adapter,
-                reference_smoke_test_cond_image=str(cond_path),
-                reference_smoke_test_reference_dir=str(refs),
-                reference_smoke_test_metadata=str(metadata_path),
-                reference_smoke_test_num_inference_steps=2,
-                reference_smoke_test_seed=1,
-                reference_smoke_test_difference_threshold=1e-6,
-                reference_token_scale=0.1,
-                reference_global_scale=0.05,
-                reference_match_scale=1.0,
-                reference_near_scale=0.35,
-                reference_nonmatch_scale=0.05,
-                reference_unknown_scale=0.1,
-                reference_spatial_gating=True,
-                reference_spatial_gate_scale=1.0,
-                device=torch.device("cpu"),
-                pipeline=pipeline,
-            )
-
-            report = run_post_train_reference_smoke_test(model, str(checkpoint_path))
-
-            smoke_dir = Path(model.logdir) / "reference_smoke_test"
-            self.assertTrue((smoke_dir / "comparison_grid.png").exists())
-            self.assertTrue((smoke_dir / "difference_report.json").exists())
-            self.assertTrue((smoke_dir / "slot_weight_report.json").exists())
-            self.assertTrue((smoke_dir / "per_slot_difference_report.json").exists())
-            self.assertTrue((smoke_dir / "per_slot_difference_grid.png").exists())
-            self.assertTrue((smoke_dir / "correct_vs_no_refs_diff_heatmap.png").exists())
-            self.assertTrue((smoke_dir / "wrong_vs_correct_diff_heatmap.png").exists())
-            self.assertTrue((smoke_dir / "object_summary.json").exists())
-            per_slot = json.loads((smoke_dir / "per_slot_difference_report.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(per_slot["correct_vs_no_refs"]), 6)
-            self.assertIn(report["verdict"], {"PASS", "WARNING", "FAIL"})
-            self.assertGreater(report["correct_vs_no_refs_mean_abs_diff"], 0.0)
-            self.assertEqual(pipeline.device, next(adapter.parameters()).device)
 
     def test_manual_pose_metadata_produces_pose_aware_weights(self):
         with tempfile.TemporaryDirectory() as tmpdir:

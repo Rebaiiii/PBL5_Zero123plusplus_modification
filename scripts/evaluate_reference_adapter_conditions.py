@@ -48,33 +48,10 @@ class Tee:
             stream.flush()
 
 
-def extract_reference_adapter_state_dict(checkpoint):
-    state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
-    if not isinstance(state_dict, dict):
-        raise TypeError("reference adapter checkpoint must be a state_dict or contain a 'state_dict' entry.")
-    prefixes = (
-        "reference_adapter.",
-        "model.reference_adapter.",
-        "rag_adapter.",
-        "model.rag_adapter.",
-    )
-    adapter_state = {}
-    for key, value in state_dict.items():
-        for prefix in prefixes:
-            if key.startswith(prefix):
-                adapter_state[key[len(prefix):]] = value
-                break
-    if adapter_state:
-        return adapter_state
-    if any(key.startswith(("ref_proj.", "view_embed.")) for key in state_dict):
-        return state_dict
-    raise ValueError("No reference adapter weights found in checkpoint.")
-
-
 def load_adapter(checkpoint_path: str, embed_dim: int, device: torch.device):
     import torch
 
-    from zero123plus.reference_adapter import ReferenceAdapter
+    from zero123plus.reference_adapter import ReferenceAdapter, extract_reference_adapter_state_dict
 
     adapter = ReferenceAdapter(embed_dim=embed_dim).to(device=device, dtype=torch.float16)
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -358,10 +335,7 @@ def parse_args():
     parser.add_argument("--input", required=True)
     parser.add_argument("--reference_images", "--rag_refs", dest="reference_images", required=True)
     parser.add_argument("--reference_metadata", "--rag_ref_metadata", dest="reference_metadata", default=None)
-    parser.add_argument("--incorrect_reference_images", "--wrong_rag_refs", dest="incorrect_reference_images", default=None)
-    parser.add_argument("--incorrect_reference_metadata", "--wrong_rag_ref_metadata", dest="incorrect_reference_metadata", default=None)
     parser.add_argument("--adapter_last", required=True)
-    parser.add_argument("--adapter_step500", default=None)
     parser.add_argument("--output_dir", default="outputs/reference_ablation")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--diffusion_steps", type=int, default=75)
@@ -378,8 +352,7 @@ def parse_args():
         default=None,
         help=(
             "Comma-separated condition names. Supported: baseline_no_adapter, "
-            "adapter_no_refs, adapter_correct_refs, adapter_step500, "
-            "and adapter_last_wrong_refs."
+            "adapter_no_refs, and adapter_correct_refs."
         ),
     )
     for raw_argument in sys.argv[1:]:
@@ -420,12 +393,8 @@ def main():
     validate_existing_path(args.input, "--input")
     validate_existing_path(args.reference_images, "--reference_images")
     validate_existing_path(args.reference_metadata, "--reference_metadata", required=False)
-    validate_existing_path(args.incorrect_reference_images, "--incorrect_reference_images", required=False)
-    validate_existing_path(args.incorrect_reference_metadata, "--incorrect_reference_metadata", required=False)
     validate_existing_path(args.adapter_last, "--adapter_last")
     requested_names = [item.strip() for item in args.conditions.split(",")] if args.conditions else None
-    needs_step500 = requested_names is None or any("step500" in name for name in requested_names)
-    validate_existing_path(args.adapter_step500, "--adapter_step500", required=needs_step500)
 
     seed_everything(args.seed)
     output_dir = Path(args.output_dir)
@@ -440,14 +409,9 @@ def main():
     if embed_dim is None:
         raise ValueError("Could not infer CLIP vision embedding dimension for reference adapter.")
 
-    checkpoint_paths = [args.adapter_last]
-    if args.adapter_step500:
-        checkpoint_paths.append(args.adapter_step500)
     adapters = {}
-    for checkpoint_path in checkpoint_paths:
-        if checkpoint_path not in adapters:
-            print(f"[ABLATION] loading adapter checkpoint {checkpoint_path}")
-            adapters[checkpoint_path] = load_adapter(checkpoint_path, embed_dim, device)
+    print(f"[ABLATION] loading adapter checkpoint {args.adapter_last}")
+    adapters[args.adapter_last] = load_adapter(args.adapter_last, embed_dim, device)
 
     standard = {"token_scale": 0.1, "global_scale": 0.05, "spatial_gate_scale": 1.0}
     condition_map = {
@@ -455,22 +419,9 @@ def main():
         "adapter_no_refs": Condition("adapter_no_refs", args.adapter_last, None, None, spatial_gating=False, zero_reference_influence=True),
         "adapter_correct_refs": Condition("adapter_correct_refs", args.adapter_last, args.reference_images, args.reference_metadata, **standard),
     }
-    if args.adapter_step500:
-        condition_map["adapter_step500"] = Condition(
-            "adapter_step500", args.adapter_step500, args.reference_images, args.reference_metadata, **standard
-        )
-    if args.incorrect_reference_images:
-        condition_map["adapter_last_wrong_refs"] = Condition(
-            "adapter_last_wrong_refs",
-            args.adapter_last,
-            args.incorrect_reference_images,
-            args.incorrect_reference_metadata,
-            **standard,
-        )
     default_conditions = [
         "baseline_no_adapter",
         "adapter_correct_refs",
-        "adapter_step500",
         "adapter_no_refs",
     ]
     requested_names = requested_names or default_conditions
