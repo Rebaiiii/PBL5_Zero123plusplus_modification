@@ -150,7 +150,7 @@ class CodeSnapshot(Callback):
 
 
 class AdapterOnlyCheckpoint(Callback):
-    """Save compact RAG adapter weights without the frozen Zero123++ pipeline."""
+    """Save compact reference adapter weights without the frozen Zero123++ pipeline."""
 
     def __init__(self, dirpath, save_steps=None, save_last=True):
         super().__init__()
@@ -162,25 +162,25 @@ class AdapterOnlyCheckpoint(Callback):
     def _save(self, trainer, pl_module, filename):
         if trainer.global_rank != 0:
             return
-        if getattr(pl_module, "rag_adapter", None) is None:
-            raise RuntimeError("Adapter-only checkpointing requires model.rag_adapter.")
+        if getattr(pl_module, "reference_adapter", None) is None:
+            raise RuntimeError("Adapter-only checkpointing requires model.reference_adapter.")
         os.makedirs(self.dirpath, exist_ok=True)
         payload = {
             "state_dict": {
-                f"rag_adapter.{name}": tensor.detach().cpu()
-                for name, tensor in pl_module.rag_adapter.state_dict().items()
+                f"reference_adapter.{name}": tensor.detach().cpu()
+                for name, tensor in pl_module.reference_adapter.state_dict().items()
             },
             "global_step": int(trainer.global_step),
             "adapter_type": "view-aware reference-token adapter with spatial gating",
-            "rag_spatial_gating": bool(getattr(pl_module, "rag_spatial_gating", False)),
-            "rag_spatial_gate_scale": float(getattr(pl_module, "rag_spatial_gate_scale", 1.0)),
-            "rag_token_scale": float(getattr(pl_module, "rag_token_scale", 0.1)),
-            "rag_global_scale": float(getattr(pl_module, "rag_global_scale", 0.05)),
+            "reference_spatial_gating": bool(getattr(pl_module, "reference_spatial_gating", False)),
+            "reference_spatial_gate_scale": float(getattr(pl_module, "reference_spatial_gate_scale", 1.0)),
+            "reference_token_scale": float(getattr(pl_module, "reference_token_scale", 0.1)),
+            "reference_global_scale": float(getattr(pl_module, "reference_global_scale", 0.05)),
         }
         path = os.path.join(self.dirpath, filename)
         torch.save(payload, path)
-        pl_module.rag_last_adapter_checkpoint_path = os.path.abspath(path)
-        rank_zero_print(f"[RAG-ADAPTER] saved adapter-only checkpoint: {path}")
+        pl_module.reference_last_adapter_checkpoint_path = os.path.abspath(path)
+        rank_zero_print(f"[REFERENCE-ADAPTER] saved adapter-only checkpoint: {path}")
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         step = int(trainer.global_step)
@@ -216,7 +216,7 @@ if __name__ == "__main__":
     lightning_config = config.lightning
     trainer_config = lightning_config.trainer
     if trainer_config.get("limit_val_batches", None) == 0:
-        rank_zero_print("[RAG-ADAPTER] validation disabled for fast overfit")
+        rank_zero_print("[REFERENCE-ADAPTER] validation disabled for fast overfit")
     
     trainer_config["accelerator"] = "gpu"
     rank_zero_print(f"Running on GPUs {opt.gpus}")
@@ -340,18 +340,18 @@ if __name__ == "__main__":
     validation_disabled = trainer_config.get("limit_val_batches", None) == 0
     trainable_count = sum(param.numel() for param in model.parameters() if param.requires_grad)
     checkpoint_steps = [] if not adapter_checkpoint_cfg else list(adapter_checkpoint_cfg.get("save_steps", []))
-    rank_zero_print(f"[RAG-ADAPTER] training samples: {train_samples}")
-    rank_zero_print(f"[RAG-ADAPTER] estimated steps per epoch: {steps_per_epoch}")
-    rank_zero_print(f"[RAG-ADAPTER] max_steps: {max_steps}")
-    rank_zero_print(f"[RAG-ADAPTER] validation disabled: {validation_disabled}")
-    rank_zero_print(f"[RAG-ADAPTER] adapter checkpoint steps: {checkpoint_steps}; save_last={bool(adapter_checkpoint_cfg and adapter_checkpoint_cfg.get('save_last', True))}")
-    rank_zero_print(f"[RAG-ADAPTER] adapter-only checkpoint saving: {bool(adapter_checkpoint_cfg and adapter_checkpoint_cfg.get('enabled', False))}")
-    rank_zero_print(f"[RAG-ADAPTER] full Lightning checkpoints disabled: {disable_full_checkpoints}")
-    rank_zero_print(f"[RAG-ADAPTER] trainable parameter count: {trainable_count}")
-    rank_zero_print(f"[RAG-ADAPTER] spatial_gating: {bool(getattr(model, 'rag_spatial_gating', False))}")
-    rank_zero_print(f"[RAG-ADAPTER] periodic tensor metrics: {bool(getattr(model, 'rag_debug_metrics_enabled', False))}; interval={int(getattr(model, 'rag_debug_metrics_interval', 0))}")
-    rank_zero_print(f"[RAG-ADAPTER] post-train smoke test: {bool(getattr(model, 'rag_post_train_smoke_test', False))}")
-    rank_zero_print("[RAG-ADAPTER] auto_view_assignment: disabled")
+    rank_zero_print(f"[REFERENCE-ADAPTER] training samples: {train_samples}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] estimated steps per epoch: {steps_per_epoch}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] max_steps: {max_steps}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] validation disabled: {validation_disabled}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] adapter checkpoint steps: {checkpoint_steps}; save_last={bool(adapter_checkpoint_cfg and adapter_checkpoint_cfg.get('save_last', True))}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] adapter-only checkpoint saving: {bool(adapter_checkpoint_cfg and adapter_checkpoint_cfg.get('enabled', False))}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] full Lightning checkpoints disabled: {disable_full_checkpoints}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] trainable parameter count: {trainable_count}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] spatial_gating: {bool(getattr(model, 'reference_spatial_gating', False))}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] periodic tensor metrics: {bool(getattr(model, 'reference_debug_metrics_enabled', False))}; interval={int(getattr(model, 'reference_debug_metrics_interval', 0))}")
+    rank_zero_print(f"[REFERENCE-ADAPTER] post-train smoke test: {bool(getattr(model, 'reference_post_train_smoke_test', False))}")
+    rank_zero_print("[REFERENCE-ADAPTER] auto_view_assignment: disabled")
 
     # configure learning rate
     base_lr = config.model.base_learning_rate
@@ -373,19 +373,19 @@ if __name__ == "__main__":
 
     if (
         trainer.global_rank == 0
-        and bool(getattr(model, 'rag_post_train_smoke_test', False))
-        and int(trainer.global_step) >= int(getattr(model, 'rag_post_train_smoke_steps', 0))
+        and bool(getattr(model, 'reference_post_train_smoke_test', False))
+        and int(trainer.global_step) >= int(getattr(model, 'reference_post_train_smoke_steps', 0))
     ):
-        from zero123plus.rag_smoke import run_post_train_rag_smoke_test
+        from zero123plus.reference_smoke import run_post_train_reference_smoke_test
 
-        checkpoint_path = getattr(model, 'rag_last_adapter_checkpoint_path', None)
+        checkpoint_path = getattr(model, 'reference_last_adapter_checkpoint_path', None)
         if checkpoint_path is None:
             candidate = os.path.join(logdir, 'adapter_checkpoints', 'adapter_last.pt')
             checkpoint_path = candidate if os.path.exists(candidate) else None
         try:
-            run_post_train_rag_smoke_test(model, checkpoint_path=checkpoint_path)
+            run_post_train_reference_smoke_test(model, checkpoint_path=checkpoint_path)
         except Exception as error:
-            smoke_dir = os.path.join(logdir, 'rag_smoke_test')
+            smoke_dir = os.path.join(logdir, 'reference_smoke_test')
             os.makedirs(smoke_dir, exist_ok=True)
             failure_report = {
                 'verdict': 'FAIL',
@@ -395,4 +395,4 @@ if __name__ == "__main__":
             with open(os.path.join(smoke_dir, 'difference_report.json'), 'w', encoding='utf-8') as handle:
                 import json
                 json.dump(failure_report, handle, indent=2, sort_keys=True)
-            rank_zero_warn(f"RAG post-train smoke test failed: {type(error).__name__}: {error}")
+            rank_zero_warn(f"reference post-train smoke test failed: {type(error).__name__}: {error}")

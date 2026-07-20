@@ -58,7 +58,7 @@ The citation below is copied from the original InstantMesh README:
 The adapter implementation is intentionally small:
 
 1. The frozen Zero123++ CLIP vision encoder extracts one embedding per reference image.
-2. `RAGReferenceAdapter` applies a two-layer MLP and adds a learned embedding for the reference view ID.
+2. `ReferenceAdapter` applies a two-layer MLP and adds a learned embedding for the reference view ID.
 3. Pose metadata produces six routing weights, one for each fixed Zero123++ target pose.
 4. The adapter emits one weak global token plus six routed slot tokens and appends them to the normal prompt embeddings.
 5. Zero123++ runs a base branch and a reference-conditioned branch. Their difference is blended through a fixed per-tile latent mask, so reference influence is concentrated on relevant output views.
@@ -74,7 +74,7 @@ For Zero123++ v1.2, the row-major sheet layout is:
 | Row 3, left | 4 | 270° | 20° |
 | Row 3, right | 5 | 330° | −10° |
 
-Spatial gating adds no trainable parameters. In adapter-only configurations, the Zero123++ UNet, VAE, vision encoder, and text encoder are frozen; `rag_unfreeze_crossattn` is disabled. The InstantMesh reconstruction network is used after view generation and is not trained by this workflow.
+Spatial gating adds no trainable parameters. In adapter-only configurations, the Zero123++ UNet, VAE, vision encoder, and text encoder are frozen; `reference_unfreeze_crossattn` is disabled. The InstantMesh reconstruction network is used after view generation and is not trained by this workflow.
 
 ## Model size
 
@@ -92,14 +92,13 @@ Only the adapter state is saved by the adapter-only checkpoint callback.
 
 | Path | Purpose |
 |---|---|
-| [`zero123plus/rag_adapter.py`](zero123plus/rag_adapter.py) | Adapter tokens, view routing, tile masks, and optional cross-attention unfreezing helper |
+| [`zero123plus/reference_adapter.py`](zero123plus/reference_adapter.py) | Adapter tokens, view routing, tile masks, and optional cross-attention unfreezing helper |
 | [`zero123plus/model.py`](zero123plus/model.py) | Adapter-only training, frozen encoders/UNet, spatially gated prediction, validation, and metrics |
 | [`zero123plus/pipeline.py`](zero123plus/pipeline.py) | Reference-aware Zero123++ inference path |
-| [`zero123plus/rag_utils.py`](zero123plus/rag_utils.py) | Reference loading, metadata parsing, target poses, and slot-weight computation |
+| [`zero123plus/reference_utils.py`](zero123plus/reference_utils.py) | Reference loading, metadata parsing, target poses, and slot-weight computation |
 | [`run.py`](run.py) | Full Zero123++ → InstantMesh inference, including adapter and reranking modes |
-| [`scripts/build_objaverse_rag_dataset.py`](scripts/build_objaverse_rag_dataset.py) | Rendering and manifest construction from local 3D assets or Objaverse-style metadata |
-| [`scripts/eval_rag_adapter_ablation.py`](scripts/eval_rag_adapter_ablation.py) | Controlled Zero123++ sheet ablations and per-slot difference metrics |
-| [`scripts/evaluate_user_study_lpips.py`](scripts/evaluate_user_study_lpips.py) | LPIPS evaluation for prepared user-study outputs |
+| [`scripts/build_objaverse_reference_dataset.py`](scripts/build_objaverse_reference_dataset.py) | Rendering and manifest construction from local 3D assets or Objaverse-style metadata |
+| [`scripts/eval_reference_adapter_ablation.py`](scripts/eval_reference_adapter_ablation.py) | Controlled Zero123++ sheet ablations and per-slot difference metrics |
 | [`tests/`](tests/) | Unit tests for routing, layout, dataset tools, rendering helpers, and validation scheduling |
 
 ## Installation
@@ -135,7 +134,11 @@ Pass either one reference image or a folder of images. Explicit camera metadata 
 }
 ```
 
-If metadata is omitted, filenames matching `ref_<azimuth>_el<elevation>` (for example, `ref_180_el0.png`) can provide a pose. Coarse labels such as `front`, `side`, or `back` can also be inferred from filenames or supplied through `--rag_view_labels`, but their routing is less precise. Unknown references receive weak routing.
+If metadata is omitted, filenames matching `ref_<azimuth>_el<elevation>` (for example, `ref_180_el0.png`) can provide a pose. Coarse labels such as `front`, `side`, or `back` can also be inferred from filenames or supplied through `--reference_view_labels`, but their routing is less precise. Unknown references receive weak routing.
+
+### Legacy command and checkpoint compatibility
+
+The former `--rag_*` command-line options remain accepted as deprecated aliases and emit a `FutureWarning`; new commands should use the `--reference_*` names shown below. Checkpoint loading accepts both the new `reference_adapter.*` / `model.reference_adapter.*` prefixes and the former `rag_adapter.*` / `model.rag_adapter.*` prefixes. Newly saved checkpoints use only `reference_adapter.*`.
 
 ## Inference
 
@@ -146,13 +149,13 @@ An adapter checkpoint is required for meaningful reference-guided output. No tra
 ```bash
 python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
   --no_rembg \
-  --enable_rag_adapter \
-  --rag_refs path/to/references \
-  --rag_ref_metadata path/to/ref_metadata.json \
-  --rag_adapter_ckpt path/to/adapter_last.pt \
-  --rag_spatial_gating \
-  --rag_slot_weight_mode wide \
-  --rag_cross_view_propagation_enabled \
+  --enable_reference_adapter \
+  --reference_images path/to/references \
+  --reference_metadata path/to/ref_metadata.json \
+  --reference_adapter_ckpt path/to/adapter_last.pt \
+  --reference_spatial_gating \
+  --reference_slot_weight_mode wide \
+  --reference_cross_view_propagation_enabled \
   --save_video
 ```
 
@@ -170,9 +173,9 @@ The repository also contains a non-training baseline that generates several ordi
 
 ```bash
 python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
-  --rag_refs path/to/references \
-  --rag_num_seeds 4 \
-  --rag_weight 0.2
+  --reference_images path/to/references \
+  --reference_num_seeds 4 \
+  --reference_weight 0.2
 ```
 
 ## Training
@@ -182,9 +185,9 @@ python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
 The builder can render an object-level dataset from local 3D assets. The command below matches the 500-object configuration used by the recorded run:
 
 ```bash
-blender --background --python scripts/build_objaverse_rag_dataset.py -- \
+blender --background --python scripts/build_objaverse_reference_dataset.py -- \
   --source_dir data/source_models \
-  --output_root data/rag_zero123plus_objaverse_toys_500 \
+  --output_root data/reference_zero123plus_objaverse_toys_500 \
   --category_keywords plushie toy stuffed_animal doll mascot cartoon_figure animal_toy soft_toy \
   --max_objects 500 \
   --train_ratio 0.9 \
@@ -198,11 +201,11 @@ The builder creates object folders plus `train.jsonl`, `val.jsonl`, `split_repor
 Validate and inspect the result with:
 
 ```bash
-python scripts/validate_rag_adapter_dataset.py \
-  --root_dir data/rag_zero123plus_objaverse_toys_500
+python scripts/validate_reference_adapter_dataset.py \
+  --root_dir data/reference_zero123plus_objaverse_toys_500
 
-python scripts/visualize_rag_adapter_sample.py \
-  --root_dir data/rag_zero123plus_objaverse_toys_500
+python scripts/visualize_reference_adapter_sample.py \
+  --root_dir data/reference_zero123plus_objaverse_toys_500
 ```
 
 ### Adapter training
@@ -211,7 +214,7 @@ The recorded five-epoch configuration uses batch size 1, three references per ob
 
 ```bash
 python train.py \
-  --base configs/zero123plus-rag-adapter-objaverse-wide-500obj-5epoch-val-loss.yaml \
+  --base configs/zero123plus-reference-adapter-objaverse-wide-500obj-5epoch-val-loss.yaml \
   --gpus 0 \
   --num_nodes 1
 ```
@@ -223,17 +226,17 @@ Adapter checkpoints are configured at steps 437, 874, 1311, 1748, and 2185, foll
 
 ## Evaluation
 
-The ablation script compares ordinary Zero123++, the trained adapter with no references, correct references at normal and strong scales, an optional earlier checkpoint, and shuffled metadata. Keep the same seed across conditions so changes are attributable to conditioning rather than sampling.
+The ablation script compares ordinary Zero123++, the trained adapter with no references, correct references, an optional earlier checkpoint, and optional incorrect references. Keep the same seed across conditions so changes are attributable to conditioning rather than sampling.
 
 ```bash
-python scripts/eval_rag_adapter_ablation.py \
+python scripts/eval_reference_adapter_ablation.py \
   --config configs/instant-mesh-large-lowvram.yaml \
   --input path/to/main.png \
-  --rag_refs path/to/references \
-  --rag_ref_metadata path/to/ref_metadata.json \
+  --reference_images path/to/references \
+  --reference_metadata path/to/ref_metadata.json \
   --adapter_last path/to/adapter_last.pt \
   --adapter_step500 path/to/earlier_adapter.pt \
-  --output_dir outputs/rag_ablation \
+  --output_dir outputs/reference_ablation \
   --seed 42 \
   --zero123plus_pose_version v1.2 \
   --no_rembg
@@ -241,11 +244,9 @@ python scripts/eval_rag_adapter_ablation.py \
 
 Outputs include each condition's 3×2 sheet, a comparison grid, per-slot grids, condition/debug JSON, and CSV/JSON metrics. The implemented metric is mean absolute pixel difference from the baseline, reported globally and for front versus side/back slots. It measures whether and where conditioning changes the output; it is **not** a perceptual-quality or 3D-accuracy score. Despite exposing `--run_reconstruction`, this script deliberately raises `NotImplementedError` for that flag; reconstruct selected sheets separately.
 
-For prepared user-study folders, [`scripts/evaluate_user_study_lpips.py`](scripts/evaluate_user_study_lpips.py) provides LPIPS-based comparisons, and [`scripts/reconstruct_user_study_models.py`](scripts/reconstruct_user_study_models.py) reconstructs saved sheets. The repository does not include the required study outputs or ground-truth images.
-
 ## Results
 
-Only training evidence is committed, so the claims below are deliberately limited to [`training_log.txt`](training_log.txt). No qualitative ablation sheets, LPIPS report, user-study results, or mesh-quality benchmark are tracked.
+Only training evidence is committed, so the claims below are deliberately limited to [`training_log.txt`](training_log.txt). No qualitative ablation sheets or mesh-quality benchmark are tracked.
 
 The logged run used 437 training samples and 49 validation samples on one NVIDIA GeForce RTX 3060. It completed five epochs (2,185 optimizer steps; the configured 2,500-step ceiling was not reached because `max_epochs=5`) and saved `adapter_last.pt` in the original training environment.
 
@@ -264,7 +265,7 @@ The best logged validation loss occurred after epoch 3, while later validation l
 - Reference discovery/retrieval is out of scope; users must provide references and preferably their camera poses.
 - The tracked repository has no trained adapter checkpoint, rendered dataset, evaluation outputs, or example input images.
 - The training data module referenced by the adapter configs is missing from version control, so clean-clone training is currently blocked.
-- The only committed quantitative evidence is diffusion training/validation loss. There is no tracked baseline-versus-adapter LPIPS, geometry, or user-study result proving an improvement.
+- The only committed quantitative evidence is diffusion training/validation loss. There is no tracked baseline-versus-adapter perceptual or geometry result proving an improvement.
 - The best validation loss was at epoch 3 rather than the final epoch, suggesting overfitting or normal validation variance; checkpoint selection should be based on held-out evaluation.
 - Fixed 3×2 tile masks route influence by output view, not by object part. They cannot isolate a small logo or local feature inside one tile.
 - Incorrect references or camera metadata can inject inconsistent appearance into the selected views.
@@ -278,7 +279,7 @@ The best logged validation loss occurred after epoch 3, while later validation l
 3. Restore `src/data/objaverse_zero123plus.py`, which is referenced but not tracked.
 4. Render or otherwise provide the six-view training dataset and validate its manifests.
 5. Train the adapter with the five-epoch config and retain all adapter-only checkpoints.
-6. Evaluate baseline, no-reference, correct-reference, strong-scale, and shuffled-metadata conditions with an identical seed.
+6. Evaluate baseline, no-reference, correct-reference, and optional incorrect-reference conditions with an identical seed.
 7. Select a checkpoint using held-out perceptual/geometry results, not training loss alone.
 8. Run selected six-view sheets through the frozen InstantMesh reconstruction stage and report both view-level and 3D-level metrics.
 

@@ -3,7 +3,7 @@ model:
   target: zero123plus.model.MVDiffusion
   params:
     drop_cond_prob: 0.1
-    enable_reference_adapter: false
+    enable_reference_adapter: true
     reference_token_scale: 0.1
     reference_global_scale: 0.05
     reference_match_scale: 1.0
@@ -12,7 +12,7 @@ model:
     reference_unknown_scale: 0.1
     reference_train_adapter_only: true
     reference_unfreeze_crossattn: false
-    reference_debug_dump: false
+    reference_debug_dump: true
 
     stable_diffusion_config:
       pretrained_model_name_or_path: sudo-ai/zero123plus-v1.2
@@ -21,23 +21,20 @@ model:
 data:
   target: src.data.objaverse_zero123plus.DataModuleFromConfig
   params:
-    batch_size: 6
-    num_workers: 8
+    batch_size: 2
+    num_workers: 4
     train:
-      target: src.data.objaverse_zero123plus.ObjaverseData
+      target: src.data.objaverse_zero123plus.ManifestReferenceZero123PlusData
       params:
-        root_dir: data/objaverse
-        meta_fname: lvis-annotations.json
-        image_dir: rendering_zero123plus
+        root_dir: data/reference_zero123plus
+        manifest_fname: train.jsonl
         validation: false
     validation:
-      target: src.data.objaverse_zero123plus.ObjaverseData
+      target: src.data.objaverse_zero123plus.ManifestReferenceZero123PlusData
       params:
-        root_dir: data/objaverse
-        meta_fname: lvis-annotations.json
-        image_dir: rendering_zero123plus
+        root_dir: data/reference_zero123plus
+        manifest_fname: train.jsonl
         validation: true
-
 
 lightning:
   modelcheckpoint:
@@ -54,4 +51,4 @@ lightning:
     val_check_interval: 1000
     num_sanity_val_steps: 0
     accumulate_grad_batches: 1
-    check_val_every_n_epoch: null   # if not set this, validation does not run
+    check_val_every_n_epoch: null

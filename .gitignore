@@ -39,6 +39,7 @@ figures*/
 data/
 temp/
 assets/
+docker/
 
 # Useless Files
 *.sh

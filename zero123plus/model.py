@@ -14,8 +14,8 @@ from einops import rearrange
 from src.utils.train_util import instantiate_from_config
 from diffusers import DiffusionPipeline, EulerAncestralDiscreteScheduler, DDPMScheduler, UNet2DConditionModel
 from .pipeline import RefOnlyNoisedUNet
-from .rag_adapter import (
-    RAGReferenceAdapter,
+from .reference_adapter import (
+    ReferenceAdapter,
     append_reference_tokens_to_prompt,
     ref_slot_weights_to_spatial_mask,
     maybe_unfreeze_cross_attention,
@@ -53,106 +53,100 @@ class MVDiffusion(pl.LightningModule):
         self,
         stable_diffusion_config,
         drop_cond_prob=0.1,
-        enable_rag_adapter=False,
-        rag_token_scale=0.1,
-        rag_global_scale=0.05,
-        rag_global_reference_token_enabled=True,
-        rag_global_reference_token_scale=None,
-        rag_match_scale=1.0,
-        rag_near_scale=0.35,
-        rag_nonmatch_scale=0.05,
-        rag_unknown_scale=0.1,
-        rag_train_adapter_only=True,
-        rag_unfreeze_crossattn=False,
-        rag_spatial_gating=False,
-        rag_spatial_gate_scale=1.0,
-        rag_debug_dump=False,
+        enable_reference_adapter=False,
+        reference_token_scale=0.1,
+        reference_global_scale=0.05,
+        reference_global_token_enabled=True,
+        reference_global_token_scale=None,
+        reference_match_scale=1.0,
+        reference_near_scale=0.35,
+        reference_nonmatch_scale=0.05,
+        reference_unknown_scale=0.1,
+        reference_train_adapter_only=True,
+        reference_unfreeze_crossattn=False,
+        reference_spatial_gating=False,
+        reference_spatial_gate_scale=1.0,
+        reference_debug_dump=False,
         train_debug_image_interval=500,
-        rag_debug_metrics_enabled=False,
-        rag_debug_metrics_interval=20,
-        rag_debug_metrics_filename='rag_debug_metrics.jsonl',
-        rag_post_train_smoke_test=False,
-        rag_post_train_smoke_steps=0,
-        rag_smoke_test_cond_image=None,
-        rag_smoke_test_ref_dir=None,
-        rag_smoke_test_metadata=None,
-        rag_smoke_test_num_inference_steps=15,
-        rag_smoke_test_seed=42,
-        rag_smoke_test_include_strong_scale=True,
-        rag_smoke_test_strong_scale_multiplier=3.0,
-        rag_smoke_test_difference_threshold=1e-5,
-        rag_validation_num_inference_steps=75,
-        rag_validation_generate_images=True,
-        rag_slot_weight_mode='local',
-        rag_slot_weight_sigma_deg=80.0,
-        rag_slot_weight_min=0.05,
-        rag_slot_weight_normalize=True,
-        rag_slot_weight_elevation_weight=0.25,
-        rag_cross_view_propagation_enabled=False,
-        rag_cross_view_propagation_strength=0.3,
-        rag_cross_view_neighbor_degrees=120.0,
-        rag_negative_ref_training_enabled=False,
-        rag_negative_ref_prob=0.0,
-        rag_wrong_ref_suppression_weight=0.0,
-        rag_shuffled_metadata_training_enabled=False,
+        reference_debug_metrics_enabled=False,
+        reference_debug_metrics_interval=20,
+        reference_debug_metrics_filename='reference_debug_metrics.jsonl',
+        reference_post_train_smoke_test=False,
+        reference_post_train_smoke_steps=0,
+        reference_smoke_test_cond_image=None,
+        reference_smoke_test_reference_dir=None,
+        reference_smoke_test_metadata=None,
+        reference_smoke_test_num_inference_steps=15,
+        reference_smoke_test_seed=42,
+        reference_smoke_test_difference_threshold=1e-5,
+        reference_validation_num_inference_steps=75,
+        reference_validation_generate_images=True,
+        reference_slot_weight_mode='local',
+        reference_slot_weight_sigma_deg=80.0,
+        reference_slot_weight_min=0.05,
+        reference_slot_weight_normalize=True,
+        reference_slot_weight_elevation_weight=0.25,
+        reference_cross_view_propagation_enabled=False,
+        reference_cross_view_propagation_strength=0.3,
+        reference_cross_view_neighbor_degrees=120.0,
+        reference_negative_reference_training_enabled=False,
+        reference_negative_reference_prob=0.0,
+        reference_incorrect_reference_suppression_weight=0.0,
     ):
         super(MVDiffusion, self).__init__()
 
         self.drop_cond_prob = drop_cond_prob
-        self.enable_rag_adapter = enable_rag_adapter
-        self.rag_token_scale = rag_token_scale
-        self.rag_global_scale = rag_global_scale
-        self.rag_global_reference_token_enabled = bool(rag_global_reference_token_enabled)
-        self.rag_global_reference_token_scale = (
-            float(rag_global_scale)
-            if rag_global_reference_token_scale is None
-            else float(rag_global_reference_token_scale)
+        self.enable_reference_adapter = enable_reference_adapter
+        self.reference_token_scale = reference_token_scale
+        self.reference_global_scale = reference_global_scale
+        self.reference_global_token_enabled = bool(reference_global_token_enabled)
+        self.reference_global_token_scale = (
+            float(reference_global_scale)
+            if reference_global_token_scale is None
+            else float(reference_global_token_scale)
         )
-        self.rag_match_scale = rag_match_scale
-        self.rag_near_scale = rag_near_scale
-        self.rag_nonmatch_scale = rag_nonmatch_scale
-        self.rag_unknown_scale = rag_unknown_scale
-        self.rag_train_adapter_only = rag_train_adapter_only
-        self.rag_unfreeze_crossattn = rag_unfreeze_crossattn
-        self.rag_spatial_gating = rag_spatial_gating
-        self.rag_spatial_gate_scale = rag_spatial_gate_scale
-        self.rag_debug_dump = rag_debug_dump
+        self.reference_match_scale = reference_match_scale
+        self.reference_near_scale = reference_near_scale
+        self.reference_nonmatch_scale = reference_nonmatch_scale
+        self.reference_unknown_scale = reference_unknown_scale
+        self.reference_train_adapter_only = reference_train_adapter_only
+        self.reference_unfreeze_crossattn = reference_unfreeze_crossattn
+        self.reference_spatial_gating = reference_spatial_gating
+        self.reference_spatial_gate_scale = reference_spatial_gate_scale
+        self.reference_debug_dump = reference_debug_dump
         self.train_debug_image_interval = int(train_debug_image_interval)
-        self.rag_debug_metrics_enabled = bool(rag_debug_metrics_enabled or rag_debug_dump)
-        self.rag_debug_metrics_interval = max(1, int(rag_debug_metrics_interval))
-        self.rag_debug_metrics_filename = str(rag_debug_metrics_filename)
-        self.rag_post_train_smoke_test = bool(rag_post_train_smoke_test)
-        self.rag_post_train_smoke_steps = max(0, int(rag_post_train_smoke_steps))
-        self.rag_smoke_test_cond_image = rag_smoke_test_cond_image
-        self.rag_smoke_test_ref_dir = rag_smoke_test_ref_dir
-        self.rag_smoke_test_metadata = rag_smoke_test_metadata
-        self.rag_smoke_test_num_inference_steps = int(rag_smoke_test_num_inference_steps)
-        self.rag_smoke_test_seed = int(rag_smoke_test_seed)
-        self.rag_smoke_test_include_strong_scale = bool(rag_smoke_test_include_strong_scale)
-        self.rag_smoke_test_strong_scale_multiplier = float(rag_smoke_test_strong_scale_multiplier)
-        self.rag_smoke_test_difference_threshold = float(rag_smoke_test_difference_threshold)
-        self.rag_validation_num_inference_steps = int(rag_validation_num_inference_steps)
-        self.rag_validation_generate_images = bool(rag_validation_generate_images)
-        self.rag_slot_weight_mode = str(rag_slot_weight_mode)
-        self.rag_slot_weight_sigma_deg = float(rag_slot_weight_sigma_deg)
-        self.rag_slot_weight_min = float(rag_slot_weight_min)
-        self.rag_slot_weight_normalize = bool(rag_slot_weight_normalize)
-        self.rag_slot_weight_elevation_weight = float(rag_slot_weight_elevation_weight)
-        self.rag_cross_view_propagation_enabled = bool(rag_cross_view_propagation_enabled)
-        self.rag_cross_view_propagation_strength = float(rag_cross_view_propagation_strength)
-        self.rag_cross_view_neighbor_degrees = float(rag_cross_view_neighbor_degrees)
-        self.rag_negative_ref_training_enabled = bool(rag_negative_ref_training_enabled)
-        self.rag_negative_ref_prob = float(rag_negative_ref_prob)
-        self.rag_wrong_ref_suppression_weight = float(rag_wrong_ref_suppression_weight)
-        self.rag_shuffled_metadata_training_enabled = bool(rag_shuffled_metadata_training_enabled)
-        self._rag_batch_debug_printed = False
-        self._rag_optimizer_debug_printed = False
-        self._rag_grad_debug_printed = False
-        self._rag_reference_mask_debug_printed = False
-        self._rag_spatial_train_debug_printed = False
-        self._rag_validation_first_generation_seconds = None
-        self._rag_forward_debug_metrics = None
-        self._rag_pending_debug_metrics = None
+        self.reference_debug_metrics_enabled = bool(reference_debug_metrics_enabled or reference_debug_dump)
+        self.reference_debug_metrics_interval = max(1, int(reference_debug_metrics_interval))
+        self.reference_debug_metrics_filename = str(reference_debug_metrics_filename)
+        self.reference_post_train_smoke_test = bool(reference_post_train_smoke_test)
+        self.reference_post_train_smoke_steps = max(0, int(reference_post_train_smoke_steps))
+        self.reference_smoke_test_cond_image = reference_smoke_test_cond_image
+        self.reference_smoke_test_reference_dir = reference_smoke_test_reference_dir
+        self.reference_smoke_test_metadata = reference_smoke_test_metadata
+        self.reference_smoke_test_num_inference_steps = int(reference_smoke_test_num_inference_steps)
+        self.reference_smoke_test_seed = int(reference_smoke_test_seed)
+        self.reference_smoke_test_difference_threshold = float(reference_smoke_test_difference_threshold)
+        self.reference_validation_num_inference_steps = int(reference_validation_num_inference_steps)
+        self.reference_validation_generate_images = bool(reference_validation_generate_images)
+        self.reference_slot_weight_mode = str(reference_slot_weight_mode)
+        self.reference_slot_weight_sigma_deg = float(reference_slot_weight_sigma_deg)
+        self.reference_slot_weight_min = float(reference_slot_weight_min)
+        self.reference_slot_weight_normalize = bool(reference_slot_weight_normalize)
+        self.reference_slot_weight_elevation_weight = float(reference_slot_weight_elevation_weight)
+        self.reference_cross_view_propagation_enabled = bool(reference_cross_view_propagation_enabled)
+        self.reference_cross_view_propagation_strength = float(reference_cross_view_propagation_strength)
+        self.reference_cross_view_neighbor_degrees = float(reference_cross_view_neighbor_degrees)
+        self.reference_negative_reference_training_enabled = bool(reference_negative_reference_training_enabled)
+        self.reference_negative_reference_prob = float(reference_negative_reference_prob)
+        self.reference_incorrect_reference_suppression_weight = float(reference_incorrect_reference_suppression_weight)
+        self._reference_batch_debug_printed = False
+        self._reference_optimizer_debug_printed = False
+        self._reference_grad_debug_printed = False
+        self._reference_mask_debug_printed = False
+        self._reference_spatial_train_debug_printed = False
+        self._reference_validation_first_generation_seconds = None
+        self._reference_forward_debug_metrics = None
+        self._reference_pending_debug_metrics = None
         self._target_debug_printed = False
 
         self.register_schedule()
@@ -171,25 +165,25 @@ class MVDiffusion(pl.LightningModule):
         self.train_scheduler = train_sched      # use ddpm scheduler during training
 
         self.unet = pipeline.unet
-        self.rag_adapter = None
-        if self.enable_rag_adapter:
+        self.reference_adapter = None
+        if self.enable_reference_adapter:
             embed_dim = getattr(self.pipeline.vision_encoder.config, "projection_dim", None)
             if embed_dim is None:
                 embed_dim = getattr(self.pipeline.vision_encoder.config, "hidden_size", None)
             if embed_dim is None:
-                raise ValueError("Could not infer CLIP vision embedding dimension for RAG adapter.")
-            self.rag_adapter = RAGReferenceAdapter(embed_dim=embed_dim)
-            if self.rag_train_adapter_only:
+                raise ValueError("Could not infer CLIP vision embedding dimension for reference adapter.")
+            self.reference_adapter = ReferenceAdapter(embed_dim=embed_dim)
+            if self.reference_train_adapter_only:
                 for module in (self.pipeline.unet, self.pipeline.vae, self.pipeline.vision_encoder, self.pipeline.text_encoder):
                     for param in module.parameters():
                         param.requires_grad = False
-                for param in self.rag_adapter.parameters():
+                for param in self.reference_adapter.parameters():
                     param.requires_grad = True
-            if self.rag_unfreeze_crossattn:
+            if self.reference_unfreeze_crossattn:
                 unfrozen = maybe_unfreeze_cross_attention(self.pipeline.unet)
-                print(f"[RAG-ADAPTER] unfroze {unfrozen} cross-attention parameter tensors")
-            if self.rag_spatial_gating:
-                print("[RAG-ADAPTER] spatial tile gating enabled; additional trainable params: 0")
+                print(f"[REFERENCE-ADAPTER] unfroze {unfrozen} cross-attention parameter tensors")
+            if self.reference_spatial_gating:
+                print("[REFERENCE-ADAPTER] spatial tile gating enabled; additional trainable params: 0")
 
         # validation output buffer
         self.validation_step_outputs = []
@@ -283,7 +277,7 @@ class MVDiffusion(pl.LightningModule):
 
     @torch.no_grad()
     def encode_reference_images(self, ref_imgs):
-        if ref_imgs is None or not self.enable_rag_adapter:
+        if ref_imgs is None or not self.enable_reference_adapter:
             return None
         if ref_imgs.dim() == 4:
             ref_imgs = ref_imgs.unsqueeze(1)
@@ -298,7 +292,7 @@ class MVDiffusion(pl.LightningModule):
         return ref_embeds
 
     def build_reference_tokens(self, batch):
-        if not self.enable_rag_adapter or self.rag_adapter is None or 'ref_imgs' not in batch:
+        if not self.enable_reference_adapter or self.reference_adapter is None or 'ref_imgs' not in batch:
             return None
         ref_imgs = batch['ref_imgs'].to(self.device)
         ref_embeds = self.encode_reference_images(ref_imgs)
@@ -323,32 +317,32 @@ class MVDiffusion(pl.LightningModule):
             ref_valid_mask = torch.ones(ref_embeds.shape[:2], device=self.device, dtype=torch.float32)
         else:
             ref_valid_mask = ref_valid_mask.to(self.device, dtype=torch.float32)
-        if self.rag_debug_dump and self.global_rank == 0 and not self._rag_reference_mask_debug_printed:
+        if self.reference_debug_dump and self.global_rank == 0 and not self._reference_mask_debug_printed:
             valid_count = int(ref_valid_mask.sum().item())
             total_count = ref_valid_mask.numel()
-            print(f"[RAG-ADAPTER] references_valid {valid_count}/{total_count}")
+            print(f"[REFERENCE-ADAPTER] references_valid {valid_count}/{total_count}")
             if valid_count < total_count:
-                print("[RAG-ADAPTER] WARNING: padded references detected and excluded from token aggregation")
-            print("[RAG-ADAPTER] padded refs contribute neither slot tokens nor the global reference mean")
-            self._rag_reference_mask_debug_printed = True
+                print("[REFERENCE-ADAPTER] WARNING: padded references detected and excluded from token aggregation")
+            print("[REFERENCE-ADAPTER] padded refs contribute neither slot tokens nor the global reference mean")
+            self._reference_mask_debug_printed = True
         if not torch.any(ref_valid_mask > 0):
             return None
-        reference_tokens = self.rag_adapter(
+        reference_tokens = self.reference_adapter(
             ref_embeds,
             ref_view_ids,
             ref_slot_weights=ref_slot_weights,
             ref_valid_mask=ref_valid_mask,
-            token_scale=self.rag_token_scale,
-            global_scale=self.rag_global_reference_token_scale,
-            match_scale=self.rag_match_scale,
-            near_scale=self.rag_near_scale,
-            nonmatch_scale=self.rag_nonmatch_scale,
-            unknown_scale=self.rag_unknown_scale,
-            global_token_enabled=self.rag_global_reference_token_enabled,
+            token_scale=self.reference_token_scale,
+            global_scale=self.reference_global_token_scale,
+            match_scale=self.reference_match_scale,
+            near_scale=self.reference_near_scale,
+            nonmatch_scale=self.reference_nonmatch_scale,
+            unknown_scale=self.reference_unknown_scale,
+            global_token_enabled=self.reference_global_token_enabled,
         )
-        if self.rag_debug_dump and self.global_rank == 0:
+        if self.reference_debug_dump and self.global_rank == 0:
             print(
-                "[RAG-ADAPTER] "
+                "[REFERENCE-ADAPTER] "
                 f"ref_embeds={tuple(ref_embeds.shape)} "
                 f"ref_view_ids={ref_view_ids.detach().cpu().tolist()} "
                 f"ref_slot_weights={None if ref_slot_weights is None else tuple(ref_slot_weights.shape)} "
@@ -358,21 +352,21 @@ class MVDiffusion(pl.LightningModule):
 
     def _build_negative_reference_tokens(self, batch):
         if (
-            not self.enable_rag_adapter
-            or self.rag_adapter is None
+            not self.enable_reference_adapter
+            or self.reference_adapter is None
             or 'ref_imgs' not in batch
-            or self.rag_wrong_ref_suppression_weight <= 0.0
+            or self.reference_incorrect_reference_suppression_weight <= 0.0
         ):
             return None, None
-        if torch.rand((), device=self.device).item() >= self.rag_negative_ref_prob:
+        if torch.rand((), device=self.device).item() >= self.reference_negative_reference_prob:
             return None, None
 
         ref_imgs = batch['ref_imgs']
-        if ref_imgs.shape[0] < 2 and self.rag_negative_ref_training_enabled:
+        if ref_imgs.shape[0] < 2 and self.reference_negative_reference_training_enabled:
             return None, None
 
         negative_batch = dict(batch)
-        if self.rag_negative_ref_training_enabled:
+        if self.reference_negative_reference_training_enabled:
             negative_batch['ref_imgs'] = torch.roll(ref_imgs, shifts=1, dims=0)
             if 'ref_valid_mask' in batch:
                 negative_batch['ref_valid_mask'] = torch.roll(batch['ref_valid_mask'], shifts=1, dims=0)
@@ -380,11 +374,6 @@ class MVDiffusion(pl.LightningModule):
                 negative_batch['ref_view_labels'] = torch.roll(batch['ref_view_labels'], shifts=1, dims=0)
             if 'ref_slot_weights' in batch:
                 negative_batch['ref_slot_weights'] = torch.roll(batch['ref_slot_weights'], shifts=1, dims=0)
-        elif self.rag_shuffled_metadata_training_enabled:
-            if 'ref_view_labels' in batch:
-                negative_batch['ref_view_labels'] = torch.roll(batch['ref_view_labels'], shifts=1, dims=1)
-            if 'ref_slot_weights' in batch:
-                negative_batch['ref_slot_weights'] = torch.roll(batch['ref_slot_weights'], shifts=1, dims=1)
         else:
             return None, None
 
@@ -415,7 +404,7 @@ class MVDiffusion(pl.LightningModule):
         posterior = self.pipeline.vae.encode(images.to(dtype)).latent_dist
         latents = posterior.sample() * self.pipeline.vae.config.scaling_factor
         latents = scale_latents(latents)
-        if self.enable_rag_adapter and self.rag_debug_dump and self.global_rank == 0:
+        if self.enable_reference_adapter and self.reference_debug_dump and self.global_rank == 0:
             print(f"[ZERO123-TARGET] target latent shape after VAE encoding: {tuple(latents.shape)}")
         return latents
     
@@ -435,7 +424,7 @@ class MVDiffusion(pl.LightningModule):
         cond_latents = cond_latents.to(dtype)
         cross_attention_kwargs = dict(cond_lat=cond_latents)
         if condition_noise is not None:
-            cross_attention_kwargs['rag_condition_noise'] = condition_noise
+            cross_attention_kwargs['reference_condition_noise'] = condition_noise
         pred_noise = self.pipeline.unet(
             latents,
             t,
@@ -445,22 +434,22 @@ class MVDiffusion(pl.LightningModule):
         )[0]
         return pred_noise
 
-    def _should_collect_rag_metrics(self):
-        if not self.rag_debug_metrics_enabled or self.global_rank != 0:
+    def _should_collect_reference_metrics(self):
+        if not self.reference_debug_metrics_enabled or self.global_rank != 0:
             return False
         step = int(self.global_step) + 1
-        return step % self.rag_debug_metrics_interval == 0
+        return step % self.reference_debug_metrics_interval == 0
 
-    def _capture_rag_prediction_metrics(self, base_pred, ref_pred, final_pred):
-        if not self._should_collect_rag_metrics():
-            self._rag_forward_debug_metrics = None
+    def _capture_reference_prediction_metrics(self, base_pred, ref_pred, final_pred):
+        if not self._should_collect_reference_metrics():
+            self._reference_forward_debug_metrics = None
             return
         with torch.no_grad():
-            self._rag_forward_debug_metrics = {
+            self._reference_forward_debug_metrics = {
                 'base_pred_mean': float(base_pred.detach().float().mean().item()),
                 'ref_pred_mean': float(ref_pred.detach().float().mean().item()),
                 'final_pred_mean': float(final_pred.detach().float().mean().item()),
-                'rag_delta_mean': float((ref_pred - base_pred).detach().float().abs().mean().item()),
+                'reference_delta_mean': float((ref_pred - base_pred).detach().float().abs().mean().item()),
                 'final_delta_mean': float((final_pred - base_pred).detach().float().abs().mean().item()),
             }
 
@@ -474,19 +463,19 @@ class MVDiffusion(pl.LightningModule):
                 found = True
         return total_sq ** 0.5 if found else None
 
-    def _write_rag_debug_metrics(self, metrics):
+    def _write_reference_debug_metrics(self, metrics):
         if self.global_rank != 0:
             return
-        path = os.path.join(self.logdir, self.rag_debug_metrics_filename)
+        path = os.path.join(self.logdir, self.reference_debug_metrics_filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, 'a', encoding='utf-8') as handle:
             handle.write(json.dumps(metrics, sort_keys=True) + '\n')
-        print(f"[RAG-METRICS] {json.dumps(metrics, sort_keys=True)}")
-        print(f"[RAG-METRICS] appended: {path}")
+        print(f"[REFERENCE-METRICS] {json.dumps(metrics, sort_keys=True)}")
+        print(f"[REFERENCE-METRICS] appended: {path}")
 
     def forward_unet_spatial_gated(self, latents, t, prompt_embeds, cond_latents, reference_tokens, ref_slot_weights):
         if (
-            not self.rag_spatial_gating
+            not self.reference_spatial_gating
             or reference_tokens is None
             or ref_slot_weights is None
         ):
@@ -499,15 +488,15 @@ class MVDiffusion(pl.LightningModule):
             )
             # No valid references means the conceptual base/ref/final predictions
             # are identical without paying for a redundant second UNet call.
-            if self.rag_spatial_gating and reference_tokens is None:
-                if self.rag_adapter is not None:
+            if self.reference_spatial_gating and reference_tokens is None:
+                if self.reference_adapter is not None:
                     zero_adapter_link = sum(
-                        parameter.sum() * 0.0 for parameter in self.rag_adapter.parameters()
+                        parameter.sum() * 0.0 for parameter in self.reference_adapter.parameters()
                     )
                     prediction = prediction + zero_adapter_link
-                self._capture_rag_prediction_metrics(prediction, prediction, prediction)
+                self._capture_reference_prediction_metrics(prediction, prediction, prediction)
             else:
-                self._rag_forward_debug_metrics = None
+                self._reference_forward_debug_metrics = None
             return prediction
 
         # Both branches must see exactly the same noised condition latent. The
@@ -526,11 +515,11 @@ class MVDiffusion(pl.LightningModule):
         effective_reference_tokens = reference_tokens
         global_scale = getattr(
             self,
-            'rag_global_reference_token_scale',
-            getattr(self, 'rag_global_scale', 0.05),
+            'reference_global_token_scale',
+            getattr(self, 'reference_global_scale', 0.05),
         )
-        if self.rag_token_scale == 0.0 and (
-            not getattr(self, 'rag_global_reference_token_enabled', True)
+        if self.reference_token_scale == 0.0 and (
+            not getattr(self, 'reference_global_token_enabled', True)
             or global_scale == 0.0
         ):
             effective_reference_tokens = None
@@ -545,22 +534,22 @@ class MVDiffusion(pl.LightningModule):
         spatial_mask = ref_slot_weights_to_spatial_mask(
             ref_slot_weights.to(device=ref_pred.device),
             ref_pred.shape,
-            gate_scale=self.rag_spatial_gate_scale,
+            gate_scale=self.reference_spatial_gate_scale,
         ).to(device=ref_pred.device, dtype=ref_pred.dtype)
         final_pred = base_pred + spatial_mask * (ref_pred - base_pred)
-        self._capture_rag_prediction_metrics(base_pred, ref_pred, final_pred)
-        if self.rag_debug_dump and self.global_rank == 0 and not self._rag_spatial_train_debug_printed:
-            print(f"[RAG-ADAPTER] spatial gate mask shape: {tuple(spatial_mask.shape)}")
+        self._capture_reference_prediction_metrics(base_pred, ref_pred, final_pred)
+        if self.reference_debug_dump and self.global_rank == 0 and not self._reference_spatial_train_debug_printed:
+            print(f"[REFERENCE-ADAPTER] spatial gate mask shape: {tuple(spatial_mask.shape)}")
             print(
-                f"[RAG-ADAPTER] spatial gate min/max: "
+                f"[REFERENCE-ADAPTER] spatial gate min/max: "
                 f"{float(spatial_mask.min().item()):.4f}/{float(spatial_mask.max().item()):.4f}"
             )
             mean_abs_delta = float((ref_pred - base_pred).detach().abs().mean().item())
-            print("[RAG-ADAPTER] spatial-gating training reuses identical condition noise for base/ref branches")
-            print(f"[RAG-ADAPTER] mean(abs(ref_pred - base_pred)): {mean_abs_delta:.8f}")
+            print("[REFERENCE-ADAPTER] spatial-gating training reuses identical condition noise for base/ref branches")
+            print(f"[REFERENCE-ADAPTER] mean(abs(ref_pred - base_pred)): {mean_abs_delta:.8f}")
             if effective_reference_tokens is None:
-                print("[RAG-ADAPTER] zero/disabled RAG identity check: base/ref predictions use identical conditioning")
-            self._rag_spatial_train_debug_printed = True
+                print("[REFERENCE-ADAPTER] zero/disabled reference identity check: base/ref predictions use identical conditioning")
+            self._reference_spatial_train_debug_printed = True
         return final_pred
     
     def predict_start_from_z_and_v(self, x_t, t, v):
@@ -578,21 +567,21 @@ class MVDiffusion(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         # get input
         cond_imgs, target_imgs = self.prepare_batch_data(batch)
-        if self.enable_rag_adapter and not self._rag_batch_debug_printed and self.global_rank == 0:
-            print(f"[RAG-ADAPTER] batch has ref_imgs: {'ref_imgs' in batch}")
+        if self.enable_reference_adapter and not self._reference_batch_debug_printed and self.global_rank == 0:
+            print(f"[REFERENCE-ADAPTER] batch has ref_imgs: {'ref_imgs' in batch}")
             if 'ref_imgs' in batch:
-                print(f"[RAG-ADAPTER] ref_imgs shape: {tuple(batch['ref_imgs'].shape)}")
+                print(f"[REFERENCE-ADAPTER] ref_imgs shape: {tuple(batch['ref_imgs'].shape)}")
             if 'ref_view_labels' in batch:
-                print(f"[RAG-ADAPTER] ref_view_labels shape: {tuple(batch['ref_view_labels'].shape)}")
+                print(f"[REFERENCE-ADAPTER] ref_view_labels shape: {tuple(batch['ref_view_labels'].shape)}")
             if 'ref_slot_weights' in batch:
-                print(f"[RAG-ADAPTER] ref_slot_weights shape: {tuple(batch['ref_slot_weights'].shape)}")
+                print(f"[REFERENCE-ADAPTER] ref_slot_weights shape: {tuple(batch['ref_slot_weights'].shape)}")
             if 'ref_valid_mask' in batch:
                 valid_count = int(batch['ref_valid_mask'].sum().item())
                 total_count = batch['ref_valid_mask'].numel()
-                print(f"[RAG-ADAPTER] references_valid {valid_count}/{total_count}")
+                print(f"[REFERENCE-ADAPTER] references_valid {valid_count}/{total_count}")
                 if valid_count < total_count:
-                    print("[RAG-ADAPTER] WARNING: padded references are present and will be masked out")
-            self._rag_batch_debug_printed = True
+                    print("[REFERENCE-ADAPTER] WARNING: padded references are present and will be masked out")
+            self._reference_batch_debug_printed = True
 
         # sample random timestep
         B = cond_imgs.shape[0]
@@ -652,10 +641,10 @@ class MVDiffusion(pl.LightningModule):
                 condition_noise=suppression_noise,
             )
             wrong_loss = F.l1_loss(wrong_pred, base_pred.detach())
-            loss = loss + self.rag_wrong_ref_suppression_weight * wrong_loss
-            loss_dict['train/rag_wrong_ref_suppression_loss'] = wrong_loss
+            loss = loss + self.reference_incorrect_reference_suppression_weight * wrong_loss
+            loss_dict['train/reference_incorrect_reference_suppression_loss'] = wrong_loss
 
-        if self._rag_forward_debug_metrics is not None:
+        if self._reference_forward_debug_metrics is not None:
             ref_valid_mask = batch.get('ref_valid_mask', None)
             if ref_valid_mask is None and 'ref_imgs' in batch:
                 ref_valid_mask = torch.ones(
@@ -678,24 +667,24 @@ class MVDiffusion(pl.LightningModule):
                 slot_min = float(valid_slot_weights.min().item())
                 slot_max = float(valid_slot_weights.max().item())
                 slot_mean = float(valid_slot_weights.mean().item())
-            self._rag_pending_debug_metrics = {
+            self._reference_pending_debug_metrics = {
                 'step': int(self.global_step) + 1,
                 'loss': float(loss.detach().float().item()),
-                **self._rag_forward_debug_metrics,
+                **self._reference_forward_debug_metrics,
                 'ref_valid_count': ref_valid_count,
                 'ref_slot_weights_min': slot_min,
                 'ref_slot_weights_max': slot_max,
                 'ref_slot_weights_mean': slot_mean,
                 'no_valid_reference_check': (
                     'PASS_NEAR_ZERO'
-                    if ref_valid_count == 0 and self._rag_forward_debug_metrics['rag_delta_mean'] <= 1e-7
+                    if ref_valid_count == 0 and self._reference_forward_debug_metrics['reference_delta_mean'] <= 1e-7
                     else 'NOT_APPLICABLE'
                 ),
                 'valid_reference_effect_check': (
                     'PASS_FINITE_NONZERO'
                     if ref_valid_count > 0
-                    and np.isfinite(self._rag_forward_debug_metrics['rag_delta_mean'])
-                    and self._rag_forward_debug_metrics['rag_delta_mean'] > 0.0
+                    and np.isfinite(self._reference_forward_debug_metrics['reference_delta_mean'])
+                    and self._reference_forward_debug_metrics['reference_delta_mean'] > 0.0
                     else 'WARNING_ZERO_OR_NONFINITE' if ref_valid_count > 0 else 'NOT_APPLICABLE'
                 ),
             }
@@ -745,8 +734,8 @@ class MVDiffusion(pl.LightningModule):
                     f"[TRAIN-PREVIEW] global_step={self.global_step} "
                     f"timestep={t.detach().cpu().tolist()} "
                     "preview_type=one_step_predicted_x0 "
-                    f"adapter_enabled={self.enable_rag_adapter} "
-                    f"spatial_gating_enabled={self.rag_spatial_gating} "
+                    f"adapter_enabled={self.enable_reference_adapter} "
+                    f"spatial_gating_enabled={self.reference_spatial_gating} "
                     "final_quality=false"
                 )
                 print(
@@ -757,24 +746,24 @@ class MVDiffusion(pl.LightningModule):
         return loss
 
     def on_after_backward(self):
-        if not self.enable_rag_adapter or self.rag_adapter is None:
+        if not self.enable_reference_adapter or self.reference_adapter is None:
             return
         if self.global_rank != 0:
             return
-        ref_proj_grad = self._module_grad_norm(self.rag_adapter, 'ref_proj')
-        view_embed_grad = self._module_grad_norm(self.rag_adapter, 'view_embed')
-        if not self._rag_grad_debug_printed:
-            print(f"[RAG-ADAPTER] ref_proj grad_norm: {ref_proj_grad}")
-            print(f"[RAG-ADAPTER] view_embed grad_norm: {view_embed_grad}")
-            print(f"[RAG-ADAPTER] ref_proj grad nonzero: {ref_proj_grad is not None and ref_proj_grad > 0}")
-            print(f"[RAG-ADAPTER] view_embed grad nonzero: {view_embed_grad is not None and view_embed_grad > 0}")
-            self._rag_grad_debug_printed = True
-        if self._rag_pending_debug_metrics is not None:
-            metrics = dict(self._rag_pending_debug_metrics)
+        ref_proj_grad = self._module_grad_norm(self.reference_adapter, 'ref_proj')
+        view_embed_grad = self._module_grad_norm(self.reference_adapter, 'view_embed')
+        if not self._reference_grad_debug_printed:
+            print(f"[REFERENCE-ADAPTER] ref_proj grad_norm: {ref_proj_grad}")
+            print(f"[REFERENCE-ADAPTER] view_embed grad_norm: {view_embed_grad}")
+            print(f"[REFERENCE-ADAPTER] ref_proj grad nonzero: {ref_proj_grad is not None and ref_proj_grad > 0}")
+            print(f"[REFERENCE-ADAPTER] view_embed grad nonzero: {view_embed_grad is not None and view_embed_grad > 0}")
+            self._reference_grad_debug_printed = True
+        if self._reference_pending_debug_metrics is not None:
+            metrics = dict(self._reference_pending_debug_metrics)
             metrics['ref_proj_grad_norm'] = ref_proj_grad
             metrics['view_embed_grad_norm'] = view_embed_grad
-            self._write_rag_debug_metrics(metrics)
-            self._rag_pending_debug_metrics = None
+            self._write_reference_debug_metrics(metrics)
+            self._reference_pending_debug_metrics = None
         
     def compute_loss(self, noise_pred, noise_gt):
         loss = F.mse_loss(noise_pred, noise_gt)
@@ -785,9 +774,9 @@ class MVDiffusion(pl.LightningModule):
 
         return loss, loss_dict
 
-    def _build_validation_rag_kwargs(self, batch, sample_index):
-        """Build per-sample pipeline kwargs and truthfully report whether RAG is applied."""
-        if not self.enable_rag_adapter or self.rag_adapter is None or 'ref_imgs' not in batch:
+    def _build_validation_reference_kwargs(self, batch, sample_index):
+        """Build per-sample pipeline kwargs and truthfully report whether reference is applied."""
+        if not self.enable_reference_adapter or self.reference_adapter is None or 'ref_imgs' not in batch:
             return {}, False
 
         ref_imgs = batch['ref_imgs'][sample_index]
@@ -817,21 +806,21 @@ class MVDiffusion(pl.LightningModule):
             ].detach().cpu().tolist()
 
         return {
-            'rag_reference_images': reference_images,
-            'rag_ref_view_ids': selected_view_ids,
-            'rag_ref_slot_weights': selected_slot_weights,
-            'rag_ref_valid_mask': [1.0] * len(reference_images),
-            'rag_adapter': self.rag_adapter,
-            'rag_token_scale': self.rag_token_scale,
-            'rag_global_scale': self.rag_global_reference_token_scale,
-            'rag_global_reference_token_enabled': self.rag_global_reference_token_enabled,
-            'rag_match_scale': self.rag_match_scale,
-            'rag_near_scale': self.rag_near_scale,
-            'rag_nonmatch_scale': self.rag_nonmatch_scale,
-            'rag_unknown_scale': self.rag_unknown_scale,
-            'rag_spatial_gating': self.rag_spatial_gating and selected_slot_weights is not None,
-            'rag_spatial_gate_scale': self.rag_spatial_gate_scale,
-            'rag_debug_dump': self.rag_debug_dump,
+            'reference_images': reference_images,
+            'reference_view_ids': selected_view_ids,
+            'reference_slot_weights': selected_slot_weights,
+            'reference_valid_mask': [1.0] * len(reference_images),
+            'reference_adapter': self.reference_adapter,
+            'reference_token_scale': self.reference_token_scale,
+            'reference_global_scale': self.reference_global_token_scale,
+            'reference_global_token_enabled': self.reference_global_token_enabled,
+            'reference_match_scale': self.reference_match_scale,
+            'reference_near_scale': self.reference_near_scale,
+            'reference_nonmatch_scale': self.reference_nonmatch_scale,
+            'reference_unknown_scale': self.reference_unknown_scale,
+            'reference_spatial_gating': self.reference_spatial_gating and selected_slot_weights is not None,
+            'reference_spatial_gate_scale': self.reference_spatial_gate_scale,
+            'reference_debug_dump': self.reference_debug_dump,
         }, True
 
     @staticmethod
@@ -851,8 +840,8 @@ class MVDiffusion(pl.LightningModule):
             return str(value.device)
         return type(value).__name__
 
-    def _validation_branch_name(self, uses_rag):
-        return 'rag' if uses_rag else 'baseline'
+    def _validation_branch_name(self, uses_reference):
+        return 'reference' if uses_reference else 'baseline'
 
     def _log_validation_generation_devices(self, batch, sample_index, branch_name, cond_img):
         ref_imgs = batch.get('ref_imgs', None)
@@ -866,7 +855,7 @@ class MVDiffusion(pl.LightningModule):
             f"unet={self._module_device(self.pipeline.unet)} "
             f"vae={self._module_device(self.pipeline.vae)} "
             f"image_encoder={self._module_device(getattr(self.pipeline, 'vision_encoder', None))} "
-            f"rag_adapter={self._module_device(self.rag_adapter)} "
+            f"reference_adapter={self._module_device(self.reference_adapter)} "
             f"cond_tensor={self._tensor_device(cond_img)} "
             f"ref_tensor={self._tensor_device(None if ref_imgs is None else ref_imgs[sample_index])} "
             f"ref_slot_weights={self._tensor_device(None if ref_slot_weights is None else ref_slot_weights[sample_index])} "
@@ -878,8 +867,8 @@ class MVDiffusion(pl.LightningModule):
         if torch.cuda.is_available():
             target_device = torch.device('cuda:0')
         self.pipeline.to(target_device)
-        if self.rag_adapter is not None:
-            self.rag_adapter.to(target_device)
+        if self.reference_adapter is not None:
+            self.reference_adapter.to(target_device)
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
@@ -923,11 +912,11 @@ class MVDiffusion(pl.LightningModule):
             sync_dist=True,
         )
 
-        if not self.rag_validation_generate_images:
+        if not self.reference_validation_generate_images:
             if self.global_rank == 0:
                 print(
                     f"[VALIDATION-PREVIEW] skipped image generation at global_step={self.global_step}; "
-                    "rag_validation_generate_images=false"
+                    "reference_validation_generate_images=false"
                 )
             return
 
@@ -936,50 +925,50 @@ class MVDiffusion(pl.LightningModule):
         images_pil = [v2.functional.to_pil_image(cond_imgs[i]) for i in range(cond_imgs.shape[0])]
 
         outputs = []
-        rag_applied = []
+        reference_applied = []
         for sample_index, cond_img in enumerate(images_pil):
-            rag_kwargs, sample_uses_rag = self._build_validation_rag_kwargs(batch, sample_index)
-            branch_name = self._validation_branch_name(sample_uses_rag)
+            reference_kwargs, sample_uses_reference = self._build_validation_reference_kwargs(batch, sample_index)
+            branch_name = self._validation_branch_name(sample_uses_reference)
             if self.global_rank == 0:
                 self._log_validation_generation_devices(batch, sample_index, branch_name, cond_imgs[sample_index])
             start_time = time.perf_counter()
             latent = self.pipeline(
                 cond_img,
-                num_inference_steps=self.rag_validation_num_inference_steps,
+                num_inference_steps=self.reference_validation_num_inference_steps,
                 output_type='latent',
-                **rag_kwargs,
+                **reference_kwargs,
             ).images
             elapsed = time.perf_counter() - start_time
-            seconds_per_step = elapsed / max(1, int(self.rag_validation_num_inference_steps))
+            seconds_per_step = elapsed / max(1, int(self.reference_validation_num_inference_steps))
             if self.global_rank == 0:
                 print(
                     "[VALIDATION-GEN-TIMING] "
                     f"batch_idx={batch_idx} "
                     f"sample_index={sample_index} "
                     f"branch={branch_name} "
-                    f"inference_steps={self.rag_validation_num_inference_steps} "
+                    f"inference_steps={self.reference_validation_num_inference_steps} "
                     f"elapsed_seconds={elapsed:.3f} "
                     f"seconds_per_step={seconds_per_step:.3f}"
                 )
-                if self._rag_validation_first_generation_seconds is None:
-                    self._rag_validation_first_generation_seconds = elapsed
-                elif elapsed > 2.0 * self._rag_validation_first_generation_seconds:
+                if self._reference_validation_first_generation_seconds is None:
+                    self._reference_validation_first_generation_seconds = elapsed
+                elif elapsed > 2.0 * self._reference_validation_first_generation_seconds:
                     print(
                         "[VALIDATION-GEN-TIMING] WARNING: generation took more than 2x first generation "
-                        f"first_seconds={self._rag_validation_first_generation_seconds:.3f} "
+                        f"first_seconds={self._reference_validation_first_generation_seconds:.3f} "
                         f"current_seconds={elapsed:.3f} "
                         f"branch={branch_name}"
                     )
             image = unscale_image(self.pipeline.vae.decode(latent / self.pipeline.vae.config.scaling_factor, return_dict=False)[0])   # [-1, 1]
             image = (image * 0.5 + 0.5).clamp(0, 1)
             outputs.append(image)
-            rag_applied.append(sample_uses_rag)
+            reference_applied.append(sample_uses_reference)
         outputs = torch.cat(outputs, dim=0).to(self.device)
         self.validation_step_outputs.append({
             'cond': cond_imgs,
             'target': target_imgs,
             'full_generation': outputs,
-            'rag_applied': rag_applied,
+            'reference_applied': reference_applied,
         })
     
     @torch.no_grad()
@@ -989,24 +978,24 @@ class MVDiffusion(pl.LightningModule):
         cond_images = torch.cat([item['cond'] for item in self.validation_step_outputs], dim=0)
         target_images = torch.cat([item['target'] for item in self.validation_step_outputs], dim=0)
         full_generations = torch.cat([item['full_generation'] for item in self.validation_step_outputs], dim=0)
-        local_rag_count = sum(sum(item['rag_applied']) for item in self.validation_step_outputs)
-        local_output_count = sum(len(item['rag_applied']) for item in self.validation_step_outputs)
+        local_reference_count = sum(sum(item['reference_applied']) for item in self.validation_step_outputs)
+        local_output_count = sum(len(item['reference_applied']) for item in self.validation_step_outputs)
 
         all_cond = rearrange(self.all_gather(cond_images), 'r b c h w -> (r b) c h w')
         all_targets = rearrange(self.all_gather(target_images), 'r b c h w -> (r b) c h w')
         all_generations = rearrange(self.all_gather(full_generations), 'r b c h w -> (r b) c h w')
         all_counts = self.all_gather(torch.tensor(
-            [local_rag_count, local_output_count], device=self.device, dtype=torch.long
+            [local_reference_count, local_output_count], device=self.device, dtype=torch.long
         )).reshape(-1, 2).sum(dim=0)
 
         if self.global_rank == 0:
             image_dir = os.path.join(self.logdir, 'validation')
             os.makedirs(image_dir, exist_ok=True)
             step_name = f'{self.global_step:07d}'
-            rag_count, output_count = (int(value.item()) for value in all_counts)
-            if rag_count == output_count and output_count > 0:
-                generation_kind = 'rag'
-            elif rag_count == 0:
+            reference_count, output_count = (int(value.item()) for value in all_counts)
+            if reference_count == output_count and output_count > 0:
+                generation_kind = 'reference'
+            elif reference_count == 0:
                 generation_kind = 'baseline'
             else:
                 generation_kind = 'mixed'
@@ -1022,30 +1011,30 @@ class MVDiffusion(pl.LightningModule):
                 make_grid(all_generations, nrow=8, normalize=True, value_range=(0, 1)),
                 os.path.join(
                     image_dir,
-                    f'val_{step_name}_{generation_kind}_full_{self.rag_validation_num_inference_steps}_step_generation.png',
+                    f'val_{step_name}_{generation_kind}_full_{self.reference_validation_num_inference_steps}_step_generation.png',
                 ),
             )
             validation_report = {
                 'global_step': int(self.global_step),
                 'generation_kind': generation_kind,
-                'rag_outputs': rag_count,
+                'reference_outputs': reference_count,
                 'output_count': output_count,
-                'spatial_gating_requested': bool(self.rag_spatial_gating),
-                'num_inference_steps': int(self.rag_validation_num_inference_steps),
+                'spatial_gating_requested': bool(self.reference_spatial_gating),
+                'num_inference_steps': int(self.reference_validation_num_inference_steps),
             }
             with open(os.path.join(image_dir, f'val_{step_name}_report.json'), 'w', encoding='utf-8') as handle:
                 json.dump(validation_report, handle, indent=2, sort_keys=True)
             print(
                 f"[VALIDATION-PREVIEW] global_step={self.global_step} "
-                f"timestep=full_schedule preview_type=full_{self.rag_validation_num_inference_steps}_step_generation "
+                f"timestep=full_schedule preview_type=full_{self.reference_validation_num_inference_steps}_step_generation "
                 f"generation_kind={generation_kind} "
-                f"rag_outputs={rag_count}/{output_count} "
-                f"spatial_gating_requested={self.rag_spatial_gating} "
-                f"num_inference_steps={self.rag_validation_num_inference_steps} "
+                f"reference_outputs={reference_count}/{output_count} "
+                f"spatial_gating_requested={self.reference_spatial_gating} "
+                f"num_inference_steps={self.reference_validation_num_inference_steps} "
                 "final_quality=true"
             )
-            if self.enable_rag_adapter and rag_count == 0:
-                print("[VALIDATION-PREVIEW] WARNING: no RAG references were applied; outputs are baseline")
+            if self.enable_reference_adapter and reference_count == 0:
+                print("[VALIDATION-PREVIEW] WARNING: no references were applied; outputs are baseline")
 
         self.validation_step_outputs.clear()  # free memory
 
@@ -1054,21 +1043,21 @@ class MVDiffusion(pl.LightningModule):
 
         params = [param for param in self.parameters() if param.requires_grad]
         if not params:
-            raise ValueError("No trainable parameters found. Check RAG adapter training flags.")
-        if self.enable_rag_adapter and not self._rag_optimizer_debug_printed:
+            raise ValueError("No trainable parameters found. Check reference adapter training flags.")
+        if self.enable_reference_adapter and not self._reference_optimizer_debug_printed:
             trainable_count = sum(param.numel() for param in params)
             ref_proj_trainable = any(
-                name.startswith('rag_adapter.ref_proj') and param.requires_grad
+                name.startswith('reference_adapter.ref_proj') and param.requires_grad
                 for name, param in self.named_parameters()
             )
             view_embed_trainable = any(
-                name.startswith('rag_adapter.view_embed') and param.requires_grad
+                name.startswith('reference_adapter.view_embed') and param.requires_grad
                 for name, param in self.named_parameters()
             )
-            print(f"[RAG-ADAPTER] trainable parameter count: {trainable_count}")
-            print(f"[RAG-ADAPTER] optimizer includes ref_proj: {ref_proj_trainable}")
-            print(f"[RAG-ADAPTER] optimizer includes view_embed: {view_embed_trainable}")
-            self._rag_optimizer_debug_printed = True
+            print(f"[REFERENCE-ADAPTER] trainable parameter count: {trainable_count}")
+            print(f"[REFERENCE-ADAPTER] optimizer includes ref_proj: {ref_proj_trainable}")
+            print(f"[REFERENCE-ADAPTER] optimizer includes view_embed: {view_embed_trainable}")
+            self._reference_optimizer_debug_printed = True
         optimizer = torch.optim.AdamW(params, lr=lr)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, 3000, eta_min=lr/4)
 

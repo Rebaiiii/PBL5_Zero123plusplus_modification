@@ -26,7 +26,7 @@ from diffusers import (
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models.attention_processor import Attention, AttnProcessor, XFormersAttnProcessor, AttnProcessor2_0
 from diffusers.utils.import_utils import is_xformers_available
-from .rag_adapter import (
+from .reference_adapter import (
     append_reference_tokens_to_prompt,
     expand_spatial_mask_batch,
     ref_slot_weights_to_spatial_mask,
@@ -93,7 +93,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         self.unet = unet
         self.train_sched = train_sched
         self.val_sched = val_sched
-        self._rag_val_scheduler_debug_printed = False
+        self._reference_val_scheduler_debug_printed = False
 
         unet_lora_attn_procs = dict()
         for name, _ in unet.attn_processors.items():
@@ -159,19 +159,19 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         return self.train_sched, "validation_supervised_noise", membership
 
     def _log_condition_scheduler_choice(self, timestep, scheduler, reason, membership):
-        if self.training or self._rag_val_scheduler_debug_printed:
+        if self.training or self._reference_val_scheduler_debug_printed:
             return
         val_min, val_max, val_count = self._scheduler_timestep_range(self.val_sched)
         timestep_values = timestep.detach().reshape(-1).float().cpu().tolist()
         found_values = None if membership is None else membership.detach().cpu().tolist()
-        print("[RAG-VALIDATION] condition scheduler choice")
-        print(f"[RAG-VALIDATION] timestep={timestep_values}")
-        print(f"[RAG-VALIDATION] val_sched_timesteps_min={val_min} max={val_max} count={val_count}")
-        print(f"[RAG-VALIDATION] timestep_found_in_val_sched={found_values}")
-        print(f"[RAG-VALIDATION] scheduler_class={scheduler.__class__.__name__}")
-        print(f"[RAG-VALIDATION] validation_inference_steps={val_count}")
-        print(f"[RAG-VALIDATION] reason={reason}")
-        self._rag_val_scheduler_debug_printed = True
+        print("[REFERENCE-VALIDATION] condition scheduler choice")
+        print(f"[REFERENCE-VALIDATION] timestep={timestep_values}")
+        print(f"[REFERENCE-VALIDATION] val_sched_timesteps_min={val_min} max={val_max} count={val_count}")
+        print(f"[REFERENCE-VALIDATION] timestep_found_in_val_sched={found_values}")
+        print(f"[REFERENCE-VALIDATION] scheduler_class={scheduler.__class__.__name__}")
+        print(f"[REFERENCE-VALIDATION] validation_inference_steps={val_count}")
+        print(f"[REFERENCE-VALIDATION] reason={reason}")
+        self._reference_val_scheduler_debug_printed = True
 
     def _noise_condition_latents(self, cond_lat, noise, timestep):
         scheduler, reason, membership = self._condition_noise_scheduler(timestep)
@@ -213,12 +213,12 @@ class RefOnlyNoisedUNet(torch.nn.Module):
     ):
         cond_lat = cross_attention_kwargs['cond_lat']
         is_cfg_guidance = cross_attention_kwargs.get('is_cfg_guidance', False)
-        noise = cross_attention_kwargs.get('rag_condition_noise', None)
+        noise = cross_attention_kwargs.get('reference_condition_noise', None)
         if noise is None:
             noise = torch.randn_like(cond_lat)
         elif noise.shape != cond_lat.shape:
             raise ValueError(
-                "rag_condition_noise must match cond_lat shape; "
+                "reference_condition_noise must match cond_lat shape; "
                 f"noise={tuple(noise.shape)}, cond_lat={tuple(cond_lat.shape)}"
             )
         noisy_cond_lat = self._noise_condition_latents(cond_lat, noise, timestep)
@@ -250,8 +250,8 @@ class RefOnlyNoisedUNet(torch.nn.Module):
                 **kwargs
             )
 
-        spatial_mask = cross_attention_kwargs.get('rag_spatial_mask', None)
-        base_encoder_hidden_states = cross_attention_kwargs.get('rag_base_encoder_hidden_states', None)
+        spatial_mask = cross_attention_kwargs.get('reference_spatial_mask', None)
+        base_encoder_hidden_states = cross_attention_kwargs.get('reference_base_encoder_hidden_states', None)
         if spatial_mask is None or base_encoder_hidden_states is None:
             return run_prediction(encoder_hidden_states)
 
@@ -270,7 +270,7 @@ class RefOnlyNoisedUNet(torch.nn.Module):
             ),
         )
         if not isinstance(ref_out, tuple) or not isinstance(base_out, tuple):
-            raise TypeError("RAG spatial gating expects UNet return_dict=False tuple outputs during inference.")
+            raise TypeError("reference spatial gating expects UNet return_dict=False tuple outputs during inference.")
 
         ref_pred = ref_out[0]
         base_pred = base_out[0]
@@ -278,14 +278,14 @@ class RefOnlyNoisedUNet(torch.nn.Module):
         spatial_mask = expand_spatial_mask_batch(spatial_mask, ref_pred)
         final_pred = base_pred + spatial_mask * (ref_pred - base_pred)
 
-        if cross_attention_kwargs.get('rag_debug_dump', False) and not getattr(self, "_rag_inference_spatial_debug_printed", False):
-            print("[RAG-ADAPTER] spatial gating enabled during inference")
-            print("[RAG-ADAPTER] expected extra inference cost: about 2x UNet calls per denoising step")
-            print(f"[RAG-ADAPTER] latent spatial mask shape: {tuple(spatial_mask.shape)}")
-            print(f"[RAG-ADAPTER] base_pred shape: {tuple(base_pred.shape)}")
-            print(f"[RAG-ADAPTER] ref_pred shape: {tuple(ref_pred.shape)}")
-            print(f"[RAG-ADAPTER] final_pred shape: {tuple(final_pred.shape)}")
-            self._rag_inference_spatial_debug_printed = True
+        if cross_attention_kwargs.get('reference_debug_dump', False) and not getattr(self, "_reference_inference_spatial_debug_printed", False):
+            print("[REFERENCE-ADAPTER] spatial gating enabled during inference")
+            print("[REFERENCE-ADAPTER] expected extra inference cost: about 2x UNet calls per denoising step")
+            print(f"[REFERENCE-ADAPTER] latent spatial mask shape: {tuple(spatial_mask.shape)}")
+            print(f"[REFERENCE-ADAPTER] base_pred shape: {tuple(base_pred.shape)}")
+            print(f"[REFERENCE-ADAPTER] ref_pred shape: {tuple(ref_pred.shape)}")
+            print(f"[REFERENCE-ADAPTER] final_pred shape: {tuple(final_pred.shape)}")
+            self._reference_inference_spatial_debug_printed = True
 
         return (final_pred, *ref_out[1:])
 
@@ -346,16 +346,16 @@ class DepthControlUNet(torch.nn.Module):
         down_block_res_samples, mid_block_res_sample = run_controlnet(encoder_hidden_states)
         base_down_block_res_samples = None
         base_mid_block_res_sample = None
-        base_encoder_hidden_states = cross_attention_kwargs.get('rag_base_encoder_hidden_states')
-        if cross_attention_kwargs.get('rag_spatial_mask') is not None and base_encoder_hidden_states is not None:
+        base_encoder_hidden_states = cross_attention_kwargs.get('reference_base_encoder_hidden_states')
+        if cross_attention_kwargs.get('reference_spatial_mask') is not None and base_encoder_hidden_states is not None:
             base_down_block_res_samples, base_mid_block_res_sample = run_controlnet(base_encoder_hidden_states)
             if (
-                cross_attention_kwargs.get('rag_debug_dump', False)
-                and not getattr(self, "_rag_controlnet_spatial_debug_printed", False)
+                cross_attention_kwargs.get('reference_debug_dump', False)
+                and not getattr(self, "_reference_controlnet_spatial_debug_printed", False)
             ):
-                print("[RAG-ADAPTER] ControlNet residuals computed separately for base/ref branches")
-                print("[RAG-ADAPTER] ControlNet base branch uses RAG-free encoder conditioning")
-                self._rag_controlnet_spatial_debug_printed = True
+                print("[REFERENCE-ADAPTER] ControlNet residuals computed separately for base/ref branches")
+                print("[REFERENCE-ADAPTER] ControlNet base branch uses REFERENCE-free encoder conditioning")
+                self._reference_controlnet_spatial_debug_printed = True
         return self.unet(
             sample,
             timestep,
@@ -486,21 +486,21 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         num_images_per_prompt: Optional[int] = 1,
         guidance_scale=4.0,
         depth_image: Image.Image = None,
-        rag_reference_images=None,
-        rag_ref_view_ids=None,
-        rag_ref_slot_weights=None,
-        rag_ref_valid_mask=None,
-        rag_adapter=None,
-        rag_token_scale: float = 0.1,
-        rag_global_scale: float = 0.05,
-        rag_global_reference_token_enabled: bool = True,
-        rag_match_scale: float = 1.0,
-        rag_near_scale: float = 0.35,
-        rag_nonmatch_scale: float = 0.05,
-        rag_unknown_scale: float = 0.1,
-        rag_spatial_gating: bool = False,
-        rag_spatial_gate_scale: float = 1.0,
-        rag_debug_dump: bool = False,
+        reference_images=None,
+        reference_view_ids=None,
+        reference_slot_weights=None,
+        reference_valid_mask=None,
+        reference_adapter=None,
+        reference_token_scale: float = 0.1,
+        reference_global_scale: float = 0.05,
+        reference_global_token_enabled: bool = True,
+        reference_match_scale: float = 1.0,
+        reference_near_scale: float = 0.35,
+        reference_nonmatch_scale: float = 0.05,
+        reference_unknown_scale: float = 0.1,
+        reference_spatial_gating: bool = False,
+        reference_spatial_gate_scale: float = 1.0,
+        reference_debug_dump: bool = False,
         output_type: Optional[str] = "pil",
         width=640,
         height=960,
@@ -548,73 +548,73 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
         encoder_hidden_states = encoder_hidden_states + global_embeds * ramp
         base_encoder_hidden_states = encoder_hidden_states
         negative_prompt_embeds = None
-        rag_spatial_mask = None
-        if rag_adapter is not None and rag_reference_images:
-            ref_images = [to_rgb_image(ref_image) for ref_image in rag_reference_images]
+        reference_spatial_mask = None
+        if reference_adapter is not None and reference_images:
+            ref_images = [to_rgb_image(ref_image) for ref_image in reference_images]
             ref_pixels = self.feature_extractor_clip(images=ref_images, return_tensors="pt").pixel_values
             ref_pixels = ref_pixels.to(device=self.vae.device, dtype=self.vae.dtype)
             ref_embeds = self.vision_encoder(ref_pixels, output_hidden_states=False).image_embeds
-            adapter_dtype = next(rag_adapter.parameters()).dtype
+            adapter_dtype = next(reference_adapter.parameters()).dtype
             ref_embeds = ref_embeds.to(dtype=adapter_dtype)
             ref_embeds = ref_embeds.unsqueeze(0)
-            if rag_ref_view_ids is None:
-                rag_ref_view_ids = [6] * len(ref_images)
-            rag_ref_view_ids = torch.as_tensor(rag_ref_view_ids, device=ref_embeds.device, dtype=torch.long).unsqueeze(0)
-            if rag_ref_slot_weights is not None:
-                rag_ref_slot_weights = torch.as_tensor(
-                    rag_ref_slot_weights,
+            if reference_view_ids is None:
+                reference_view_ids = [6] * len(ref_images)
+            reference_view_ids = torch.as_tensor(reference_view_ids, device=ref_embeds.device, dtype=torch.long).unsqueeze(0)
+            if reference_slot_weights is not None:
+                reference_slot_weights = torch.as_tensor(
+                    reference_slot_weights,
                     device=ref_embeds.device,
                     dtype=ref_embeds.dtype,
                 ).unsqueeze(0)
-            if rag_ref_valid_mask is None:
-                rag_ref_valid_mask = torch.ones(
+            if reference_valid_mask is None:
+                reference_valid_mask = torch.ones(
                     ref_embeds.shape[:2], device=ref_embeds.device, dtype=ref_embeds.dtype
                 )
             else:
-                rag_ref_valid_mask = torch.as_tensor(
-                    rag_ref_valid_mask,
+                reference_valid_mask = torch.as_tensor(
+                    reference_valid_mask,
                     device=ref_embeds.device,
                     dtype=ref_embeds.dtype,
                 ).reshape(1, -1)
-            if rag_ref_valid_mask.shape != ref_embeds.shape[:2]:
+            if reference_valid_mask.shape != ref_embeds.shape[:2]:
                 raise ValueError(
-                    "rag_ref_valid_mask must match the number of reference images; "
-                    f"mask={tuple(rag_ref_valid_mask.shape)}, refs={tuple(ref_embeds.shape[:2])}"
+                    "reference_valid_mask must match the number of reference images; "
+                    f"mask={tuple(reference_valid_mask.shape)}, refs={tuple(ref_embeds.shape[:2])}"
                 )
-            if rag_ref_slot_weights is not None:
-                rag_ref_slot_weights = rag_ref_slot_weights * rag_ref_valid_mask.unsqueeze(-1)
-            reference_tokens = rag_adapter(
+            if reference_slot_weights is not None:
+                reference_slot_weights = reference_slot_weights * reference_valid_mask.unsqueeze(-1)
+            reference_tokens = reference_adapter(
                 ref_embeds,
-                rag_ref_view_ids,
-                ref_slot_weights=rag_ref_slot_weights,
-                ref_valid_mask=rag_ref_valid_mask,
-                token_scale=rag_token_scale,
-                global_scale=rag_global_scale,
-                match_scale=rag_match_scale,
-                near_scale=rag_near_scale,
-                nonmatch_scale=rag_nonmatch_scale,
-                unknown_scale=rag_unknown_scale,
-                global_token_enabled=rag_global_reference_token_enabled,
+                reference_view_ids,
+                ref_slot_weights=reference_slot_weights,
+                ref_valid_mask=reference_valid_mask,
+                token_scale=reference_token_scale,
+                global_scale=reference_global_scale,
+                match_scale=reference_match_scale,
+                near_scale=reference_near_scale,
+                nonmatch_scale=reference_nonmatch_scale,
+                unknown_scale=reference_unknown_scale,
+                global_token_enabled=reference_global_token_enabled,
             )
             encoder_hidden_states = append_reference_tokens_to_prompt(encoder_hidden_states, reference_tokens)
-            if rag_spatial_gating:
-                if rag_ref_slot_weights is None:
-                    raise ValueError("rag_spatial_gating requires rag_ref_slot_weights.")
+            if reference_spatial_gating:
+                if reference_slot_weights is None:
+                    raise ValueError("reference_spatial_gating requires reference_slot_weights.")
                 vae_scale_factor = getattr(
                     self,
                     "vae_scale_factor",
                     2 ** (len(self.vae.config.block_out_channels) - 1),
                 )
                 latent_shape = (
-                    rag_ref_slot_weights.shape[0],
+                    reference_slot_weights.shape[0],
                     self.unet.config.in_channels,
                     height // vae_scale_factor,
                     width // vae_scale_factor,
                 )
-                rag_spatial_mask = ref_slot_weights_to_spatial_mask(
-                    rag_ref_slot_weights,
+                reference_spatial_mask = ref_slot_weights_to_spatial_mask(
+                    reference_slot_weights,
                     latent_shape,
-                    gate_scale=rag_spatial_gate_scale,
+                    gate_scale=reference_spatial_gate_scale,
                 )
             if guidance_scale > 1:
                 if hasattr(self, "encode_prompt"):
@@ -641,21 +641,21 @@ class Zero123PlusPipeline(diffusers.StableDiffusionPipeline):
                 )
                 negative_prompt_embeds = torch.cat([negative_base, negative_ref_tokens], dim=1)
                 base_encoder_hidden_states = torch.cat([negative_base, base_encoder_hidden_states], dim=0)
-            if rag_debug_dump:
+            if reference_debug_dump:
                 print(
-                    "[RAG-ADAPTER] appended reference tokens "
+                    "[REFERENCE-ADAPTER] appended reference tokens "
                     f"ref_embeds={tuple(ref_embeds.shape)} "
-                    f"view_ids={rag_ref_view_ids.detach().cpu().tolist()} "
-                    f"slot_weights={None if rag_ref_slot_weights is None else tuple(rag_ref_slot_weights.shape)} "
-                    f"references_valid={int(rag_ref_valid_mask.sum().item())}/{rag_ref_valid_mask.numel()} "
+                    f"view_ids={reference_view_ids.detach().cpu().tolist()} "
+                    f"slot_weights={None if reference_slot_weights is None else tuple(reference_slot_weights.shape)} "
+                    f"references_valid={int(reference_valid_mask.sum().item())}/{reference_valid_mask.numel()} "
                     f"encoder_hidden_states={tuple(encoder_hidden_states.shape)} "
                     f"negative_prompt_embeds={None if negative_prompt_embeds is None else tuple(negative_prompt_embeds.shape)}"
                 )
         cak = dict(cond_lat=cond_lat)
-        if rag_spatial_mask is not None:
-            cak['rag_spatial_mask'] = rag_spatial_mask
-            cak['rag_base_encoder_hidden_states'] = base_encoder_hidden_states
-            cak['rag_debug_dump'] = rag_debug_dump
+        if reference_spatial_mask is not None:
+            cak['reference_spatial_mask'] = reference_spatial_mask
+            cak['reference_base_encoder_hidden_states'] = base_encoder_hidden_states
+            cak['reference_debug_dump'] = reference_debug_dump
         if hasattr(self.unet, "controlnet"):
             cak['control_depth'] = depth_image
         latents: torch.Tensor = super().__call__(

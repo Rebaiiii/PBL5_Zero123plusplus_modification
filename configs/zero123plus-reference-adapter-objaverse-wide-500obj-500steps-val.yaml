@@ -1,0 +1,112 @@
+model:
+  base_learning_rate: 1.0e-05
+  target: zero123plus.model.MVDiffusion
+  params:
+    drop_cond_prob: 0.0
+    enable_reference_adapter: true
+    reference_token_scale: 0.1
+    reference_global_scale: 0.05
+    reference_global_token_enabled: true
+    reference_global_token_scale: 0.1
+    reference_match_scale: 1.0
+    reference_near_scale: 0.35
+    reference_nonmatch_scale: 0.05
+    reference_unknown_scale: 0.1
+    reference_slot_weight_mode: "wide"
+    reference_slot_weight_sigma_deg: 80
+    reference_slot_weight_min: 0.05
+    reference_slot_weight_normalize: true
+    reference_slot_weight_elevation_weight: 0.25
+    reference_cross_view_propagation_enabled: true
+    reference_cross_view_propagation_strength: 0.3
+    reference_cross_view_neighbor_degrees: 120
+    reference_negative_reference_training_enabled: false
+    reference_negative_reference_prob: 0.0
+    reference_incorrect_reference_suppression_weight: 0.0
+    reference_train_adapter_only: true
+    reference_unfreeze_crossattn: false
+    reference_spatial_gating: true
+    reference_spatial_gate_scale: 1.0
+    reference_debug_dump: false
+    reference_debug_metrics_enabled: true
+    reference_debug_metrics_interval: 25
+    reference_debug_metrics_filename: reference_debug_metrics.jsonl
+    reference_post_train_smoke_test: true
+    reference_post_train_smoke_steps: 100
+    reference_smoke_test_cond_image: images/nice.jpg
+    reference_smoke_test_reference_dir: folder
+    reference_smoke_test_metadata: folder/ref_metadata.json
+    reference_smoke_test_num_inference_steps: 15
+    reference_smoke_test_seed: 42
+    reference_validation_num_inference_steps: 15
+    train_debug_image_interval: 250
+
+    stable_diffusion_config:
+      pretrained_model_name_or_path: sudo-ai/zero123plus-v1.2
+      custom_pipeline: ./zero123plus
+
+data:
+  target: src.data.objaverse_zero123plus.DataModuleFromConfig
+  params:
+    batch_size: 1
+    num_workers: 0
+    train:
+      target: src.data.objaverse_zero123plus.ManifestReferenceZero123PlusData
+      params:
+        root_dir: data/reference_zero123plus_objaverse_toys_500
+        manifest_fname: train.jsonl
+        validation: false
+        validation_reserve: 0
+        max_objects: 450
+        num_refs: 3
+        zero123plus_pose_version: v1.2
+        reference_slot_weight_mode: "wide"
+        reference_slot_weight_sigma_deg: 80
+        reference_slot_weight_min: 0.05
+        reference_slot_weight_normalize: true
+        reference_slot_weight_elevation_weight: 0.25
+        reference_cross_view_propagation_enabled: true
+        reference_cross_view_propagation_strength: 0.3
+        reference_cross_view_neighbor_degrees: 120
+    validation:
+      target: src.data.objaverse_zero123plus.ManifestReferenceZero123PlusData
+      params:
+        root_dir: data/reference_zero123plus_objaverse_toys_500
+        manifest_fname: val.jsonl
+        validation: true
+        validation_reserve: 0
+        max_objects: 50
+        num_refs: 3
+        zero123plus_pose_version: v1.2
+        reference_slot_weight_mode: "wide"
+        reference_slot_weight_sigma_deg: 80
+        reference_slot_weight_min: 0.05
+        reference_slot_weight_normalize: true
+        reference_slot_weight_elevation_weight: 0.25
+        reference_cross_view_propagation_enabled: true
+        reference_cross_view_propagation_strength: 0.3
+        reference_cross_view_neighbor_degrees: 120
+
+lightning:
+  disable_full_checkpoints: true
+  adapter_only_checkpoint:
+    enabled: true
+    save_steps:
+      - 100
+      - 250
+      - 500
+    save_last: true
+  callbacks: {}
+
+  trainer:
+    benchmark: false
+    max_steps: 500
+    max_epochs: -1
+    gradient_clip_val: 1.0
+    limit_val_batches: 4
+    val_check_interval: 100
+    num_sanity_val_steps: 0
+    accumulate_grad_batches: 1
+    check_val_every_n_epoch: null
+    accelerator: gpu
+    devices: 1
