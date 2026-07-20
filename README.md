@@ -2,7 +2,7 @@
 
 _A small adapter that adds side and back reference details to Zero123++ multi-view generation._
 
-> [!IMPORTANT]
+
 > This project is based on the original [InstantMesh](https://github.com/TencentARC/InstantMesh) project. InstantMesh and the original code were made by the InstantMesh authors. My changes are in the Zero123++ multi-view stage, where I added reference conditioning and spatial gating.
 
 ## Overview
@@ -131,10 +131,6 @@ You can give one reference image or a folder of images. Camera metadata is recom
 
 If there is no metadata file, the pose can come from a filename such as `ref_180_el0.png`. The code can also use simple labels such as `front`, `side`, or `back` from filenames or `--reference_view_labels`. These labels are less accurate than exact camera angles. Unknown views receive only weak routing.
 
-### Legacy command and checkpoint compatibility
-
-Old `--rag_*` options still work for compatibility, but they show a `FutureWarning`. New commands should use `--reference_*`. Old checkpoints with `rag_adapter.*` prefixes can still be loaded. New checkpoints use `reference_adapter.*`.
-
 ## Inference
 
 ### Full reference-guided mesh generation
@@ -205,8 +201,6 @@ python train.py \
 
 Adapter checkpoints are configured at steps 437, 874, 1311, 1748, and 2185, followed by `adapter_last.pt`. Logs and checkpoints are written below `logs/<run-name>/`.
 
-> [!CAUTION]
-> Before training, prepare `src/data/objaverse_zero123plus.py`, the rendered dataset, its JSONL files, and the pretrained Zero123++ and InstantMesh weights. Set the dataset path in the config. For inference, also provide a trained adapter checkpoint.
 
 ## Evaluation
 
@@ -261,8 +255,6 @@ The items below are future plans. They are not implemented now. These changes wi
 
 ### 1. Replace the custom adapter with a true IP-Adapter
 
-> The current adapter is inspired by IP-Adapter, but it is not a full IP-Adapter. It does not add separate image cross-attention layers through the Zero123++ UNet.
-
 The current adapter uses the frozen Zero123++ CLIP image encoder, a two-layer MLP, learned view embeddings, and extra conditioning tokens. It has 2,106,368 trainable parameters, or about 2.1M. The frozen Zero123++ UNet has about 865M parameters. This token method is not a true IP-Adapter.
 
 In the future, I want to use a pretrained image encoder and project its features into image tokens. I also want to add separate image cross-attention layers inside the Zero123++ UNet. The normal Zero123++ conditioning and reference conditioning will stay separate. The reference strength will be adjustable. The main UNet will stay frozen, and only the new projection and attention parts will be trained.
@@ -307,7 +299,7 @@ Reference-guided Zero123++ generation
 
 This may use CLIP or DINOv2 features, image or text search, feature matching, segmentation, duplicate removal, and viewpoint classification. The search should check two things. First, the image should show the same object. Color, shape, texture, pattern, logo, and accessories can help with this. Second, the image should add useful information, such as a side, back, tail, logo, or hidden pattern. Images with a different object, different version, heavy blocking, unclear viewpoint, or no new details should be rejected.
 
-### Long-term target system
+### Better System
 
 ```text
 Single input image
@@ -345,8 +337,6 @@ The final goal is an automatic reference-guided image-to-3D system. The user wil
 ## Conclusion
 
 This project gives Zero123++ extra side and back information that is not visible in one front image. Zero123++ and InstantMesh stay frozen. Only the 2.1M-parameter adapter is trained. Camera metadata sends the reference information to the related views, and spatial gating limits the change to those view tiles.
-
-The next step is to run image-quality and 3D evaluation using a separate test set and compare the adapter with the original model.
 
 ## License and acknowledgements
 
