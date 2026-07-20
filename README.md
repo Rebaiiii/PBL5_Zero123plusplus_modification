@@ -1,179 +1,50 @@
-<div align="center">
-  
-# InstantMesh: Efficient 3D Mesh Generation from a Single Image with Sparse-view Large Reconstruction Models
+# Reference-Guided Hidden-View Generation for InstantMesh
 
-<a href="https://arxiv.org/abs/2404.07191"><img src="https://img.shields.io/badge/ArXiv-2404.07191-brightgreen"></a> 
-<a href="https://huggingface.co/TencentARC/InstantMesh"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Model_Card-Huggingface-orange"></a> 
-<a href="https://huggingface.co/spaces/TencentARC/InstantMesh"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20Gradio%20Demo-Huggingface-orange"></a> <br>
-<a href="https://replicate.com/camenduru/instantmesh"><img src="https://img.shields.io/badge/Demo-Replicate-blue"></a>
-<a href="https://colab.research.google.com/github/camenduru/InstantMesh-jupyter/blob/main/InstantMesh_jupyter.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg"></a>
-<a href="https://github.com/jtydhr88/ComfyUI-InstantMesh"><img src="https://img.shields.io/badge/Demo-ComfyUI-8A2BE2"></a>
+_A lightweight adapter for injecting additional side and back reference details into Zero123++ multi-view generation._
 
-</div>
+> [!IMPORTANT]
+> This repository is a research modification of the original [InstantMesh](https://github.com/TencentARC/InstantMesh) project. InstantMesh and its original implementation were created by the original InstantMesh authors. This project builds on their image-to-3D reconstruction pipeline and modifies the Zero123++ multi-view generation stage by adding reference-guided conditioning and spatial gating.
 
----
+## Overview
 
-This repo is the official implementation of InstantMesh, a feed-forward framework for efficient 3D mesh generation from a single image based on the LRM/Instant3D architecture.
+[InstantMesh](https://github.com/TencentARC/InstantMesh) reconstructs a 3D object from one image. Its Zero123++ stage first predicts six views in a fixed 3×2 image sheet, which the frozen InstantMesh reconstruction model then converts into a mesh. With only a front image, details that exist solely on the side or back must be guessed; they can therefore be missing, inconsistent, or hallucinated.
 
-https://github.com/TencentARC/InstantMesh/assets/20635237/dab3511e-e7c6-4c0b-bab7-15772045c47d
+This project adds explicit side/back reference images to that stage. A small trainable adapter turns frozen CLIP vision features from those images into conditioning tokens. Camera azimuth/elevation metadata determines how strongly each reference should affect each of the six target views, and a spatial mask confines that effect to the corresponding tiles of the Zero123++ sheet.
 
-# 🚩 Features and Todo List
-- [x] 🔥🔥 Release Zero123++ fine-tuning code. 
-- [x] 🔥🔥 Support for running gradio demo on two GPUs to save memory.
-- [x] 🔥🔥 Support for running demo with docker. Please refer to the [docker](docker/) directory.
-- [x] Release inference and training code.
-- [x] Release model weights.
-- [x] Release huggingface gradio demo. Please try it at [demo](https://huggingface.co/spaces/TencentARC/InstantMesh) link.
-- [ ] Add support for more multi-view diffusion models.
-
-# ⚙️ Dependencies and Installation
-
-We recommend using `Python>=3.10`, `PyTorch>=2.1.0`, and `CUDA>=12.1`.
-```bash
-conda create --name instantmesh python=3.10
-conda activate instantmesh
-pip install -U pip
-
-# Ensure Ninja is installed
-conda install Ninja
-
-# Install the correct version of CUDA
-conda install cuda -c nvidia/label/cuda-12.1.0
-
-# Install PyTorch and xformers
-# You may need to install another xformers version if you use a different PyTorch version
-pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
-pip install xformers==0.0.22.post7
-
-# Install other requirements
-pip install -r requirements.txt
+```text
+Main input image
+        +
+Additional reference-view images
+        +
+Camera-view metadata
+        ↓
+Reference adapter
+        ↓
+Zero123++ with spatially gated reference conditioning
+        ↓
+Six-view 3×2 sheet
+        ↓
+InstantMesh reconstruction model
+        ↓
+3D mesh
 ```
 
-# 💫 How to Use
+The core contribution is **reference-guided hidden-view generation for Zero123++ using a lightweight adapter, explicit camera-view metadata, and spatial gating**. It is not an automatic retrieval system: reference images and their metadata are supplied by the user or dataset. The repository also retains a separate CLIP-based multi-seed reranking baseline, but retrieval itself is not implemented.
 
-## Download the models
+## Based on InstantMesh
 
-We provide 4 sparse-view reconstruction model variants and a customized Zero123++ UNet for white-background image generation in the [model card](https://huggingface.co/TencentARC/InstantMesh).
+The original image-to-3D pipeline, reconstruction model, project structure, and major supporting components come from Tencent ARC's InstantMesh. This repository does not claim ownership of the InstantMesh architecture or implementation.
 
-Our inference script will download the models automatically. Alternatively, you can manually download the models and put them under the `ckpts/` directory.
+The changes in this repository are focused on the reference adapter, view-aware conditioning, spatial gating, adapter-only training/checkpointing, dataset preparation utilities, ablation tools, and related experiments. Users of this work should cite the original InstantMesh paper and repository and comply with the licenses for InstantMesh, Zero123++, all pretrained models, and their datasets.
 
-By default, we use the `instant-mesh-large` reconstruction model variant.
+- Official repository: [TencentARC/InstantMesh](https://github.com/TencentARC/InstantMesh)
+- Paper: [InstantMesh: Efficient 3D Mesh Generation from a Single Image with Sparse-view Large Reconstruction Models](https://arxiv.org/abs/2404.07191)
+- Authors: Jiale Xu, Weihao Cheng, Yiming Gao, Xintao Wang, Shenghua Gao, and Ying Shan
+- Repository license: [Apache License 2.0](LICENSE)
 
-## Start a local gradio demo
+The citation below is copied from the original InstantMesh README:
 
-To start a gradio demo in your local machine, simply run:
-```bash
-python app.py
-```
-
-If you have multiple GPUs in your machine, the demo app will run on two GPUs automatically to save memory. You can also force it to run on a single GPU:
-```bash
-CUDA_VISIBLE_DEVICES=0 python app.py
-```
-
-Alternatively, you can run the demo with docker. Please follow the instructions in the [docker](docker/) directory.
-
-## Running with command line
-
-To generate 3D meshes from images via command line, simply run:
-```bash
-python run.py configs/instant-mesh-large.yaml examples/hatsune_miku.png --save_video
-```
-
-We use [rembg](https://github.com/danielgatis/rembg) to segment the foreground object. If the input image already has an alpha mask, please specify the `no_rembg` flag:
-```bash
-python run.py configs/instant-mesh-large.yaml examples/hatsune_miku.png --save_video --no_rembg
-```
-
-By default, our script exports a `.obj` mesh with vertex colors, please specify the `--export_texmap` flag if you hope to export a mesh with a texture map instead (this will cost longer time):
-```bash
-python run.py configs/instant-mesh-large.yaml examples/hatsune_miku.png --save_video --export_texmap
-```
-
-To use retrieved references safely, use RAG reranking. This generates several normal Zero123++ candidate sheets with different seeds, scores them with CLIP against the input and references, then sends only the selected sheet to InstantMesh:
-```bash
-python run.py configs/instant-mesh-large.yaml examples/hatsune_miku.png --rag_refs path/to/reference_images --rag_num_seeds 4 --rag_weight 0.2
-```
-Reference images are never injected into Zero123++ conditioning. The fixed 6-view Zero123++ layout and InstantMesh reconstruction input format are preserved. Include `front`, `side`, or `back` in reference filenames, or provide `--rag_view_labels labels.json`, to guide view-aware scoring.
-
-To create a tiny RAG adapter training set from local 3D assets, place `.glb`, `.obj`, or `.fbx` files in `data/source_models/`, then run Blender:
-```bash
-blender --background --python scripts/render_rag_zero123plus_tiny.py -- --source_dir data/source_models --output_dir data/rag_zero123plus_tiny --max_objects 10
-python scripts/validate_rag_adapter_dataset.py --root_dir data/rag_zero123plus_tiny
-python scripts/visualize_rag_adapter_sample.py --root_dir data/rag_zero123plus_tiny
-```
-
-To scale the RAG adapter dataset with local Objaverse or Objaverse-style toy/plushie assets, use the object-level dataset builder. It does not download large assets automatically; provide a local model folder or metadata file with local paths:
-```bash
-python scripts/build_objaverse_rag_dataset.py \
-  --output_root data/rag_zero123plus_objaverse_toys \
-  --source_dir data/source_models \
-  --category_keywords plushie toy stuffed_animal doll mascot cartoon_figure animal_toy soft_toy \
-  --max_objects 1000 \
-  --train_ratio 0.9 \
-  --val_ratio 0.1 \
-  --render_white_background \
-  --image_size 320
-```
-When rendering is needed, run the same script through Blender:
-```bash
-blender --background --python scripts/build_objaverse_rag_dataset.py -- --source_dir data/source_models --output_root data/rag_zero123plus_objaverse_toys --max_objects 1000 --render_white_background
-```
-The builder writes object-level `train.jsonl`, `val.jsonl`, optional `test_objaverse_heldout.jsonl`, `split_report.json`, `dataset_preview_grid.png`, accepted objects under `objects/`, rejected examples under `rejected/`, and an `external_test/` folder for later manually collected real plushie/toy examples. Train the larger adapter variant with:
-```bash
-python train.py --base configs/zero123plus-rag-adapter-objaverse-wide-1000.yaml --gpus 0 --num_nodes 1
-```
-
-For a medium 500-object / 500-step validation-enabled experiment, build a separate dataset root and train with the dedicated config:
-```bash
-python scripts/build_objaverse_rag_dataset.py \
-  --output_root data/rag_zero123plus_objaverse_toys_500 \
-  --category_keywords plushie toy stuffed_animal doll mascot cartoon_figure animal_toy soft_toy \
-  --max_objects 500 \
-  --train_ratio 0.9 \
-  --val_ratio 0.1 \
-  --render_white_background \
-  --image_size 320
-
-python train.py --base configs/zero123plus-rag-adapter-objaverse-wide-500obj-500steps-val.yaml --gpus 0 --num_nodes 1
-```
-
-Objaverse is useful for scalable adapter training, but evaluation only on Objaverse-style objects may be biased because the frozen Zero123++ base model may have seen similar data during pretraining. Therefore, Objaverse held-out evaluation should be treated as internal evaluation, not final generalization proof. Keep final generalization checks separate by evaluating manually collected real plushie/toy examples in `data/rag_zero123plus_objaverse_toys/external_test/`.
-
-To evaluate a trained view-aware reference-token adapter with spatial gating, run the Zero123++ ablation script. It saves each 3x2 sheet, a side-by-side grid, per-slot comparisons, debug logs, reference slot weights, and simple difference metrics without running InstantMesh reconstruction:
-```bash
-python scripts/eval_rag_adapter_ablation.py --config configs/instant-mesh-large-lowvram.yaml --input images/nice.jpg --rag_refs folder --rag_ref_metadata folder/ref_metadata.json --adapter_last logs/zero123plus-rag-adapter-100/adapter_checkpoints/adapter_last.pt --adapter_step500 logs/zero123plus-rag-adapter-100/adapter_checkpoints/adapter_step_000500.pt --output_dir outputs/rag_ablation --seed 42 --zero123plus_pose_version v1.2 --no_rembg
-```
-
-Please use a different `.yaml` config file in the [configs](./configs) directory if you hope to use other reconstruction model variants. For example, using the `instant-nerf-large` model for generation:
-```bash
-python run.py configs/instant-nerf-large.yaml examples/hatsune_miku.png --save_video
-```
-**Note:** When using the `NeRF` model variants for image-to-3D generation, exporting a mesh with texture map by specifying `--export_texmap` may cost long time in the UV unwarping step since the default iso-surface extraction resolution is `256`. You can set a lower iso-surface extraction resolution in the config file.
-
-# 💻 Training
-
-We provide our training code to facilitate future research. But we cannot provide the training dataset due to its size. Please refer to our [dataloader](src/data/objaverse.py) for more details.
-
-To train the sparse-view reconstruction models, please run:
-```bash
-# Training on NeRF representation
-python train.py --base configs/instant-nerf-large-train.yaml --gpus 0,1,2,3,4,5,6,7 --num_nodes 1
-
-# Training on Mesh representation
-python train.py --base configs/instant-mesh-large-train.yaml --gpus 0,1,2,3,4,5,6,7 --num_nodes 1
-```
-
-We also provide our Zero123++ fine-tuning code since it is frequently requested. The running command is:
-```bash
-python train.py --base configs/zero123plus-finetune.yaml --gpus 0,1,2,3,4,5,6,7 --num_nodes 1
-```
-
-# :books: Citation
-
-If you find our work useful for your research or applications, please cite using this BibTeX:
-
-```BibTeX
+```bibtex
 @article{xu2024instantmesh,
   title={InstantMesh: Efficient 3D Mesh Generation from a Single Image with Sparse-view Large Reconstruction Models},
   author={Xu, Jiale and Cheng, Weihao and Gao, Yiming and Wang, Xintao and Gao, Shenghua and Shan, Ying},
@@ -182,14 +53,243 @@ If you find our work useful for your research or applications, please cite using
 }
 ```
 
-# 🤗 Acknowledgements
+## What changed
 
-We thank the authors of the following projects for their excellent contributions to 3D generative AI!
+The adapter implementation is intentionally small:
 
-- [Zero123++](https://github.com/SUDO-AI-3D/zero123plus)
-- [OpenLRM](https://github.com/3DTopia/OpenLRM)
-- [FlexiCubes](https://github.com/nv-tlabs/FlexiCubes)
-- [Instant3D](https://instant-3d.github.io/)
+1. The frozen Zero123++ CLIP vision encoder extracts one embedding per reference image.
+2. `RAGReferenceAdapter` applies a two-layer MLP and adds a learned embedding for the reference view ID.
+3. Pose metadata produces six routing weights, one for each fixed Zero123++ target pose.
+4. The adapter emits one weak global token plus six routed slot tokens and appends them to the normal prompt embeddings.
+5. Zero123++ runs a base branch and a reference-conditioned branch. Their difference is blended through a fixed per-tile latent mask, so reference influence is concentrated on relevant output views.
 
-Thank [@camenduru](https://github.com/camenduru) for implementing [Replicate Demo](https://replicate.com/camenduru/instantmesh) and [Colab Demo](https://colab.research.google.com/github/camenduru/InstantMesh-jupyter/blob/main/InstantMesh_jupyter.ipynb)!  
-Thank [@jtydhr88](https://github.com/jtydhr88) for implementing [ComfyUI support](https://github.com/jtydhr88/ComfyUI-InstantMesh)!
+For Zero123++ v1.2, the row-major sheet layout is:
+
+| Sheet position | Slot | Azimuth | Elevation |
+|---|---:|---:|---:|
+| Row 1, left | 0 | 30° | 20° |
+| Row 1, right | 1 | 90° | −10° |
+| Row 2, left | 2 | 150° | 20° |
+| Row 2, right | 3 | 210° | −10° |
+| Row 3, left | 4 | 270° | 20° |
+| Row 3, right | 5 | 330° | −10° |
+
+Spatial gating adds no trainable parameters. In adapter-only configurations, the Zero123++ UNet, VAE, vision encoder, and text encoder are frozen; `rag_unfreeze_crossattn` is disabled. The InstantMesh reconstruction network is used after view generation and is not trained by this workflow.
+
+## Model size
+
+The included [`training_log.txt`](training_log.txt) verifies the following model summary for the recorded experiment:
+
+| Component | Parameters | Training state |
+|---|---:|---|
+| Reference adapter | 2,106,368 (reported as 2.1M) | Trainable |
+| Zero123++ `RefOnlyNoisedUNet` | 865M | Frozen |
+| Logged total | 868M | 2.1M trainable, 865M non-trainable |
+
+Only the adapter state is saved by the adapter-only checkpoint callback.
+
+## Repository map
+
+| Path | Purpose |
+|---|---|
+| [`zero123plus/rag_adapter.py`](zero123plus/rag_adapter.py) | Adapter tokens, view routing, tile masks, and optional cross-attention unfreezing helper |
+| [`zero123plus/model.py`](zero123plus/model.py) | Adapter-only training, frozen encoders/UNet, spatially gated prediction, validation, and metrics |
+| [`zero123plus/pipeline.py`](zero123plus/pipeline.py) | Reference-aware Zero123++ inference path |
+| [`zero123plus/rag_utils.py`](zero123plus/rag_utils.py) | Reference loading, metadata parsing, target poses, and slot-weight computation |
+| [`run.py`](run.py) | Full Zero123++ → InstantMesh inference, including adapter and reranking modes |
+| [`scripts/build_objaverse_rag_dataset.py`](scripts/build_objaverse_rag_dataset.py) | Rendering and manifest construction from local 3D assets or Objaverse-style metadata |
+| [`scripts/eval_rag_adapter_ablation.py`](scripts/eval_rag_adapter_ablation.py) | Controlled Zero123++ sheet ablations and per-slot difference metrics |
+| [`scripts/evaluate_user_study_lpips.py`](scripts/evaluate_user_study_lpips.py) | LPIPS evaluation for prepared user-study outputs |
+| [`tests/`](tests/) | Unit tests for routing, layout, dataset tools, rendering helpers, and validation scheduling |
+
+## Installation
+
+The inherited InstantMesh setup targets Python 3.10, PyTorch 2.1.0, and CUDA 12.1. A CUDA-capable GPU is required by the main inference and training workflows.
+
+```bash
+conda create --name instantmesh python=3.10
+conda activate instantmesh
+pip install -U pip
+
+conda install Ninja
+conda install cuda -c nvidia/label/cuda-12.1.0
+
+pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 \
+  --index-url https://download.pytorch.org/whl/cu121
+pip install xformers==0.0.22.post7
+pip install -r requirements.txt
+```
+
+The requirements install `nvdiffrast` from NVIDIA's Git repository. Blender is additionally required to render training views from `.glb`, `.gltf`, `.obj`, or `.fbx` assets.
+
+The scripts download `sudo-ai/zero123plus-v1.2` and InstantMesh weights when they are not already cached. You can also place the InstantMesh files referenced by the chosen inference config under `ckpts/`; for example, the low-VRAM mesh config expects `diffusion_pytorch_model.bin` and `instant_mesh_large.ckpt`.
+
+## Reference input and metadata
+
+Pass either one reference image or a folder of images. Explicit camera metadata is recommended because automatic view assignment is disabled. The metadata file maps each basename to numeric azimuth and elevation values:
+
+```json
+{
+  "side.png": {"azimuth": 90, "elevation": -10},
+  "back.png": {"azimuth": 180, "elevation": 0}
+}
+```
+
+If metadata is omitted, filenames matching `ref_<azimuth>_el<elevation>` (for example, `ref_180_el0.png`) can provide a pose. Coarse labels such as `front`, `side`, or `back` can also be inferred from filenames or supplied through `--rag_view_labels`, but their routing is less precise. Unknown references receive weak routing.
+
+## Inference
+
+### Full reference-guided mesh generation
+
+An adapter checkpoint is required for meaningful reference-guided output. No trained adapter checkpoint is committed to this repository.
+
+```bash
+python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
+  --no_rembg \
+  --enable_rag_adapter \
+  --rag_refs path/to/references \
+  --rag_ref_metadata path/to/ref_metadata.json \
+  --rag_adapter_ckpt path/to/adapter_last.pt \
+  --rag_spatial_gating \
+  --rag_slot_weight_mode wide \
+  --rag_cross_view_propagation_enabled \
+  --save_video
+```
+
+`run.py` saves the generated six-view sheet under `outputs/<config-name>/images/`, the mesh under `outputs/<config-name>/meshes/`, and an optional turntable under `outputs/<config-name>/videos/`. Omit `--no_rembg` when the input needs foreground extraction. Use `--export_texmap` to export a texture-mapped mesh instead of vertex colors.
+
+### Original InstantMesh baseline
+
+```bash
+python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png --save_video
+```
+
+### Separate reranking baseline
+
+The repository also contains a non-training baseline that generates several ordinary Zero123++ sheets and selects one using CLIP similarity to the main image and supplied references. It does **not** inject reference features into Zero123++:
+
+```bash
+python run.py configs/instant-mesh-large-lowvram.yaml path/to/main.png \
+  --rag_refs path/to/references \
+  --rag_num_seeds 4 \
+  --rag_weight 0.2
+```
+
+## Training
+
+### Dataset preparation
+
+The builder can render an object-level dataset from local 3D assets. The command below matches the 500-object configuration used by the recorded run:
+
+```bash
+blender --background --python scripts/build_objaverse_rag_dataset.py -- \
+  --source_dir data/source_models \
+  --output_root data/rag_zero123plus_objaverse_toys_500 \
+  --category_keywords plushie toy stuffed_animal doll mascot cartoon_figure animal_toy soft_toy \
+  --max_objects 500 \
+  --train_ratio 0.9 \
+  --val_ratio 0.1 \
+  --render_white_background \
+  --image_size 320
+```
+
+The builder creates object folders plus `train.jsonl`, `val.jsonl`, `split_report.json`, and a preview grid. Each accepted object contains one condition image, six ordered target views, reference views, and pose metadata. It applies occupancy, centering, and image-integrity checks before admitting rendered objects.
+
+Validate and inspect the result with:
+
+```bash
+python scripts/validate_rag_adapter_dataset.py \
+  --root_dir data/rag_zero123plus_objaverse_toys_500
+
+python scripts/visualize_rag_adapter_sample.py \
+  --root_dir data/rag_zero123plus_objaverse_toys_500
+```
+
+### Adapter training
+
+The recorded five-epoch configuration uses batch size 1, three references per object, learning rate `1e-5`, up to 450 training objects and 50 validation objects, eight validation batches per epoch, wide pose routing, and adapter-only checkpoints.
+
+```bash
+python train.py \
+  --base configs/zero123plus-rag-adapter-objaverse-wide-500obj-5epoch-val-loss.yaml \
+  --gpus 0 \
+  --num_nodes 1
+```
+
+Adapter checkpoints are configured at steps 437, 874, 1311, 1748, and 2185, followed by `adapter_last.pt`. Logs and checkpoints are written below `logs/<run-name>/`.
+
+> [!CAUTION]
+> A clean checkout is **not currently end-to-end training reproducible**: the configs and validation script import `src.data.objaverse_zero123plus`, but that data module is absent from the tracked repository. Datasets, `logs/`, and checkpoints are also intentionally untracked. Restore the matching data module and provide the rendered dataset before running validation or training. This limitation does not affect inspection of the adapter/routing code, but it blocks a clean-clone training run.
+
+## Evaluation
+
+The ablation script compares ordinary Zero123++, the trained adapter with no references, correct references at normal and strong scales, an optional earlier checkpoint, and shuffled metadata. Keep the same seed across conditions so changes are attributable to conditioning rather than sampling.
+
+```bash
+python scripts/eval_rag_adapter_ablation.py \
+  --config configs/instant-mesh-large-lowvram.yaml \
+  --input path/to/main.png \
+  --rag_refs path/to/references \
+  --rag_ref_metadata path/to/ref_metadata.json \
+  --adapter_last path/to/adapter_last.pt \
+  --adapter_step500 path/to/earlier_adapter.pt \
+  --output_dir outputs/rag_ablation \
+  --seed 42 \
+  --zero123plus_pose_version v1.2 \
+  --no_rembg
+```
+
+Outputs include each condition's 3×2 sheet, a comparison grid, per-slot grids, condition/debug JSON, and CSV/JSON metrics. The implemented metric is mean absolute pixel difference from the baseline, reported globally and for front versus side/back slots. It measures whether and where conditioning changes the output; it is **not** a perceptual-quality or 3D-accuracy score. Despite exposing `--run_reconstruction`, this script deliberately raises `NotImplementedError` for that flag; reconstruct selected sheets separately.
+
+For prepared user-study folders, [`scripts/evaluate_user_study_lpips.py`](scripts/evaluate_user_study_lpips.py) provides LPIPS-based comparisons, and [`scripts/reconstruct_user_study_models.py`](scripts/reconstruct_user_study_models.py) reconstructs saved sheets. The repository does not include the required study outputs or ground-truth images.
+
+## Results
+
+Only training evidence is committed, so the claims below are deliberately limited to [`training_log.txt`](training_log.txt). No qualitative ablation sheets, LPIPS report, user-study results, or mesh-quality benchmark are tracked.
+
+The logged run used 437 training samples and 49 validation samples on one NVIDIA GeForce RTX 3060. It completed five epochs (2,185 optimizer steps; the configured 2,500-step ceiling was not reached because `max_epochs=5`) and saved `adapter_last.pt` in the original training environment.
+
+| Completed epoch | Training loss | Validation loss |
+|---:|---:|---:|
+| 1 | 0.150 | 0.159 |
+| 2 | 0.129 | 0.122 |
+| 3 | 0.105 | **0.0931** |
+| 4 | 0.100 | 0.103 |
+| 5 | 0.0995 | 0.106 |
+
+The best logged validation loss occurred after epoch 3, while later validation loss increased. Periodic diagnostics reported finite, non-zero reference effects and non-zero gradients for both the projection MLP and view embeddings. These checks show that the adapter was active and trainable; they do not by themselves establish better hidden-view fidelity. The configured post-training smoke test failed because its local input image (`images/nice.jpg`) was absent in that environment.
+
+## Limitations
+
+- Reference discovery/retrieval is out of scope; users must provide references and preferably their camera poses.
+- The tracked repository has no trained adapter checkpoint, rendered dataset, evaluation outputs, or example input images.
+- The training data module referenced by the adapter configs is missing from version control, so clean-clone training is currently blocked.
+- The only committed quantitative evidence is diffusion training/validation loss. There is no tracked baseline-versus-adapter LPIPS, geometry, or user-study result proving an improvement.
+- The best validation loss was at epoch 3 rather than the final epoch, suggesting overfitting or normal validation variance; checkpoint selection should be based on held-out evaluation.
+- Fixed 3×2 tile masks route influence by output view, not by object part. They cannot isolate a small logo or local feature inside one tile.
+- Incorrect references or camera metadata can inject inconsistent appearance into the selected views.
+- Objaverse-style held-out objects are useful for internal evaluation but do not establish real-image generalization and may overlap conceptually with data seen by frozen pretrained models.
+- Full inference remains GPU- and memory-intensive because Zero123++ and InstantMesh are still large frozen models.
+
+## Reproduction checklist
+
+1. Install the pinned Python/PyTorch stack and Blender.
+2. Obtain the InstantMesh/Zero123++ pretrained weights under their respective terms.
+3. Restore `src/data/objaverse_zero123plus.py`, which is referenced but not tracked.
+4. Render or otherwise provide the six-view training dataset and validate its manifests.
+5. Train the adapter with the five-epoch config and retain all adapter-only checkpoints.
+6. Evaluate baseline, no-reference, correct-reference, strong-scale, and shuffled-metadata conditions with an identical seed.
+7. Select a checkpoint using held-out perceptual/geometry results, not training loss alone.
+8. Run selected six-view sheets through the frozen InstantMesh reconstruction stage and report both view-level and 3D-level metrics.
+
+## Conclusion
+
+This repository demonstrates a parameter-efficient way to expose Zero123++ to details that a single front image cannot contain. The approach preserves the pretrained Zero123++ and InstantMesh models, trains only a 2.1M-parameter adapter, routes reference information with explicit camera metadata, and spatially limits its effect to relevant views in the fixed output sheet.
+
+The implementation and logged optimization behavior are present, but the repository does not yet contain enough artifacts to claim a measured quality improvement or reproduce training from a clean checkout. The next necessary step is to publish the missing data loader, adapter checkpoint, held-out outputs, and baseline-versus-adapter perceptual and 3D evaluation.
+
+## License and acknowledgements
+
+The repository carries the [Apache License 2.0](LICENSE) inherited from InstantMesh. That file applies to this repository's code distribution; pretrained models and datasets may have separate terms that users must review.
+
+In addition to InstantMesh, this code builds on or acknowledges [Zero123++](https://github.com/SUDO-AI-3D/zero123plus), [OpenLRM](https://github.com/3DTopia/OpenLRM), [FlexiCubes](https://github.com/nv-tlabs/FlexiCubes), and [Instant3D](https://instant-3d.github.io/).

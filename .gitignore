@@ -38,6 +38,7 @@ outputs/
 figures*/
 data/
 temp/
+assets/
 
 # Useless Files
 *.sh
