@@ -272,6 +272,118 @@ The best logged validation loss occurred after epoch 3, while later validation l
 - Objaverse-style held-out objects are useful for internal evaluation but do not establish real-image generalization and may overlap conceptually with data seen by frozen pretrained models.
 - Full inference remains GPU- and memory-intensive because Zero123++ and InstantMesh are still large frozen models.
 
+## Future Work
+
+The directions below are planned research, not features of the current repository. They would extend the Zero123++ multi-view generation stage; the original InstantMesh framework would continue to provide the downstream image-to-3D reconstruction pipeline.
+
+### 1. Replace the custom adapter with a true IP-Adapter
+
+> The current reference adapter is inspired by IP-Adapter but does not add fully decoupled image cross-attention throughout the Zero123++ UNet. Future work will replace it with a complete IP-Adapter-style architecture.
+
+The current implementation uses the frozen Zero123++ CLIP image encoder, a two-layer projection MLP, learned view embeddings, and tokens appended to the normal conditioning sequence. Its 2,106,368 trainable parameters (approximately 2.1M) are small relative to the frozen 865M-parameter Zero123++ UNet, but this token-injection design is not a true IP-Adapter.
+
+A future implementation would retain a pretrained image encoder, project its reference features into image-conditioning tokens, and add separate, decoupled image cross-attention layers within the Zero123++ UNet. Original Zero123++ conditioning and reference conditioning would remain separate, with an adjustable reference scale. The base UNet would stay frozen while only the image projection and added image-attention parameters were trained.
+
+### 2. Accept unlabeled references without manual view metadata
+
+The current workflow uses azimuth/elevation metadata, inferred view labels, or filename conventions to build `ref_slot_weights` for the fixed 3×2 sheet. The intended interface is simpler:
+
+```text
+Main input image
+        +
+One or more unlabeled reference images
+        ↓
+Automatic reference understanding and routing
+        ↓
+Reference-guided Zero123++ generation
+```
+
+Image encoding would still be required. What would disappear from the user-facing workflow is the need to provide azimuth, elevation, view IDs, output-slot assignments, or hand-built slot weights. Candidate approaches include automatic pose or viewpoint estimation, learned view embeddings, feature-based relevance estimation, learned soft routing, and attention-derived spatial masks. The long-term objective is to replace fixed metadata-based routing with a model that estimates whether a reference shows a front, side, back, intermediate view, or useful hidden detail.
+
+### 3. Retrieve useful side and back references automatically
+
+The current project does **not** implement automatic retrieval; it assumes that references have already been found and supplied. A future retrieval stage should find the same object, product, toy, plushie, or character while favoring complementary viewpoints and hidden information—not merely visually similar objects.
+
+```text
+Single input image
+        ↓
+Object or character identification
+        ↓
+Visual and semantic query generation
+        ↓
+Search an approved image source or local database
+        ↓
+Same-object filtering and viewpoint classification
+        ↓
+Complementary-view usefulness ranking
+        ↓
+Select side and back references
+        ↓
+Reference-guided Zero123++ generation
+```
+
+Candidate systems could combine CLIP or DINOv2 embeddings, image/text retrieval, local vector search, feature matching, segmentation, duplicate removal, viewpoint classification, and identity-confidence scoring. Ranking should balance two understandable criteria: **identity similarity**, meaning that colors, shape, texture, markings, accessories, and product or character identity agree; and **complementary-view usefulness**, meaning that the candidate exposes a side, back, accessory, pattern, logo, tail, or other detail absent from the input. Different objects, conflicting variants, severe occlusions, unreliable viewpoints, near-duplicates, and candidates with no new information should be rejected.
+
+### 4. Improve robustness to unsuitable references
+
+Automatically found references may be noisy, incorrect, or contradictory. Future experiments could use wrong-reference negative examples, shuffled-reference training, reference dropout, validity prediction, confidence-weighted conditioning, conflict detection, and consistency checks. Low-confidence tokens should be ignorable, reference influence should be bounded, and the system should fall back to the original Zero123++ prediction when a reference is unreliable rather than forcing incorrect details into the object.
+
+### 5. Replace fixed spatial gating with learned routing
+
+The current mask divides the latent sheet into six fixed regions:
+
+```text
+[30°  | 90° ]
+[150° | 210°]
+[270° | 330°]
+```
+
+Future work could replace metadata-derived `ref_slot_weights` with learned soft masks, view-conditioned or cross-view attention, token-level routing, global object tokens, local detail tokens, and attention-based spatial relevance. Such routing should learn which reference and object region matter to each output, how far a detail should propagate, and when guidance should be global or ignored—all while preventing view-specific details from appearing in the wrong place.
+
+### 6. Improve cross-view consistency
+
+The current adapter can emphasize the closest output tiles, but it does not guarantee that a feature remains visible in every compatible view. Cross-view attention, shared object representations, multi-view feature propagation, geometry-aware conditioning, consistency losses, camera-aware constraints, joint generation, or 3D-aware fusion could help the model learn that an object *has* a feature rather than copying it only into the tile nearest the reference angle.
+
+### 7. Expand and diversify the training data
+
+Future datasets should cover more toys, plushies, object categories, materials, textures, complex hidden details, multiple references, and imperfect real-world images. Evaluation should use object-level train/validation/test splits and an independent external test set. Objaverse-style data may overlap with the distribution used to train the original Zero123++ model, so it cannot by itself support strong out-of-distribution generalization claims.
+
+### 8. Select checkpoints and conditioning strength automatically
+
+The committed log shows the lowest validation loss after epoch 3, followed by higher losses at epochs 4 and 5; it does not include a user study or prove that epoch 3 has the best perceptual quality. Future work should use held-out perceptual or geometry metrics, human preferences, early stopping, per-object scale tuning, per-reference confidence weights, and distortion-aware regularization. The final training checkpoint should not automatically be assumed to be the best one.
+
+### 9. Add more complete automatic evaluation
+
+Generated views could be evaluated with LPIPS, SSIM, PSNR, DreamSim-like perceptual measures, identity/feature similarity, per-view scores, and hidden-view-only scores. When matching 3D ground truth exists, mesh evaluation could include Chamfer distance, F-score, normal consistency, silhouette consistency, and multi-view rendering similarity. Retrieval evaluation should measure same-object accuracy, viewpoint accuracy, side/back precision, useful-reference recall, rejection of incorrect candidates, and ranking quality. Robustness comparisons should cover correct, wrong, unrelated, metadata-shuffled, absent, automatically retrieved, and manually selected references.
+
+### 10. Conduct a full ablation study
+
+A future ablation should compare original Zero123++, the current custom adapter with and without gating, local and wide routing, a true IP-Adapter, manual versus automatic reference selection, automatic routing, and incorrect-reference suppression. The study should isolate contributions to hidden-view quality, identity, distortion, cross-view consistency, and final 3D reconstruction quality. The current `eval_reference_adapter_ablation.py` utility covers only a subset of these conditions and reports pixel-difference diagnostics rather than a complete perceptual or 3D study.
+
+### Long-term target system
+
+```text
+Single input image
+        ↓
+Identify the object or character
+        ↓
+Retrieve matching side and back images
+        ↓
+Filter incorrect and conflicting candidates
+        ↓
+Estimate reference confidence and viewpoint automatically
+        ↓
+Encode selected references using a true IP-Adapter
+        ↓
+Automatically route details to relevant generated views
+        ↓
+Generate a consistent six-view Zero123++ sheet
+        ↓
+Reconstruct the final 3D mesh using InstantMesh
+```
+
+The long-term goal is to transform the current manually guided prototype into an automatic reference-guided image-to-3D system. A user would provide only one input image, while the system would retrieve useful side and back references, reject incorrect candidates, automatically determine how each reference should influence the generated views, and inject selected information through a true IP-Adapter architecture. The final system would retain the original InstantMesh reconstruction pipeline while improving the Zero123++ hidden-view generation stage.
+
 ## Reproduction checklist
 
 1. Install the pinned Python/PyTorch stack and Blender.
