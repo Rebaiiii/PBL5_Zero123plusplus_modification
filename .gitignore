@@ -41,7 +41,9 @@ temp/
 assets/
 docker/
 
+
 # Useless Files
 *.sh
 blender/
 .restore/
+app.py
