@@ -223,8 +223,6 @@ The script saves each 3×2 sheet, a comparison grid, per-view grids, debug JSON,
 
 ## Results
 
-The results below come from [`training_log.txt`](training_log.txt). Image comparisons, reconstructed meshes, and perceptual or geometry metrics are still needed for a full evaluation.
-
 The run used 437 training samples and 49 validation samples on one NVIDIA GeForce RTX 3060. It finished five epochs and 2,185 optimizer steps. It stopped before 2,500 steps because `max_epochs=5`. The final checkpoint was saved as `adapter_last.pt`.
 
 | Completed epoch | Training loss | Validation loss |
