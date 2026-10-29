@@ -210,18 +210,6 @@ The comparison script currently uses local routing and a global token scale of `
 | [`scripts/evaluate_reference_adapter_conditions.py`](scripts/evaluate_reference_adapter_conditions.py) | Comparisons between reference conditions |
 | [`training_log.txt`](training_log.txt) | The recorded five-epoch run |
 
-## What I would try next
-
-First, I would restore the missing data module and make the training and evaluation settings consistent. Then I would compare generated views against held-out targets and inspect the reconstructed meshes. Testing with wrong references would also help show how easily the adapter introduces incorrect details.
-
-Beyond that, I am interested in three directions:
-
-- A full IP-Adapter-style approach with separate image cross-attention.
-- Estimating the reference viewpoint so the user does not need to provide camera metadata.
-- Finding useful side and back images automatically, while checking that they show the same object.
-
-These are possible next steps, not implemented features. The larger idea is still to start with one image, find useful extra views, and use them to reduce missing or incorrect details in the reconstruction.
-
 ## Credits and license
 
 The base pipeline, reconstruction model, and much of this repository come from [Tencent ARC's InstantMesh](https://github.com/TencentARC/InstantMesh). The changes here focus on reference conditioning in the Zero123++ stage and the related training, dataset, and evaluation tools.
