@@ -6,9 +6,9 @@ The project is based on [InstantMesh](https://github.com/TencentARC/InstantMesh)
 
 I used Codex for most of the coding. This README explains the approach, the recorded training run, and the parts that still need work.
 
-**Current status:** The adapter has a completed five-epoch training run, but the recorded losses do not show whether it produces better hidden views or meshes. The published repository also has a missing data-loading module, so training cannot be reproduced from a fresh clone yet. See [Running the project](#running-the-project).
+**Current status:** The adapter has a completed five-epoch training run, but the recorded losses do not show whether it produces better hidden views or meshes.
 
-## Why I tried this
+## Background
 
 InstantMesh starts with one image. Zero123++ generates six views, and the reconstruction model uses those views to build a mesh. If the input only shows the front of an object, the model has to guess what the side and back look like.
 
