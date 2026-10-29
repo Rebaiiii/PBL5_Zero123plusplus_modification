@@ -4,9 +4,9 @@ This is my PBL5 project. I wanted to see whether extra side and back images coul
 
 The project is based on [InstantMesh](https://github.com/TencentARC/InstantMesh). I changed the Zero123++ view-generation stage by adding a small reference adapter, camera-based view routing, and spatial gating. InstantMesh still handles the final 3D reconstruction.
 
-I used Codex for most of the coding. This README explains the approach, the recorded training run, and the parts that still need work.
+I used Codex for most of the coding. This README explains the approach, the recorded training run, the final presentation results, and the user study.
 
-**Current status:** The adapter has a completed five-epoch training run, but the recorded losses do not show whether it produces better hidden views or meshes.
+**Main finding:** In a user study with 12 participants and five objects, the Epoch 3 adapter received the highest mean hidden-view rating (3.23/5), compared with 3.02 for the baseline and 2.83 for the final adapter. The baseline remained best for overall quality, identity, and low distortion. Reference guidance helped some objects, but did not consistently outperform the baseline.
 
 ## Background
 
@@ -50,13 +50,13 @@ For Zero123++ v1.2, the output sheet has three rows and two columns:
 
 The masks work on whole view tiles. They cannot isolate a small logo or object part inside a tile, and reference influence can still extend to other views.
 
-## Training and results
+## Training
 
 The dataset tools render views from 3D assets. The training configuration targets plushie and toy objects in an Objaverse-style dataset; these are rendered images, not a collection of photographs of 500 physical toys.
 
 The recorded run in [`training_log.txt`](training_log.txt) used:
 
-- 437 training samples and 49 validation samples from the dataset prepared for the 500-object experiment.
+- 437 training samples and 49 validation samples according to the training log. Slide 5 of the final presentation reports 40 validation samples; this discrepancy remains unresolved. The counts here follow the recorded log.
 - Three references per object, batch size 1, and a learning rate of `1e-5`.
 - One NVIDIA GeForce RTX 3060.
 - Five epochs and 2,185 optimizer steps, with only the adapter trained.
@@ -74,9 +74,68 @@ These are diffusion prediction losses using mean squared error. Validation was l
 
 Epoch 3 had the lowest recorded validation loss. Training loss continued to decrease after that, while validation loss increased. The run ended at the five-epoch limit and saved `adapter_last.pt`; it did not reach the configured 2,500-step limit.
 
-The log shows non-zero gradients in the adapter and changes in the model predictions. This shows that the adapter was receiving updates, but it does not establish better image quality or more accurate 3D geometry. Generated comparisons and image-quality or geometry results are not included in this repository.
+The log shows non-zero gradients in the adapter and changes in the model predictions. This shows that the adapter was receiving updates, but it does not establish better image quality or more accurate 3D geometry. The qualitative comparisons and human ratings below provide the final project evaluation. They do not establish objective geometric accuracy.
 
 The log uses older `rag_*` names. The current code uses `reference_*` names; the older name does not mean automatic retrieval was implemented.
+
+## Results and user study
+
+The final evaluation focused on generated views and participants' ratings of reconstructed 3D objects. It compared **Base Zero123++**, the **Epoch 3 adapter**, and the **final adapter**. The final condition is labeled Epoch 5 or Last adapter in the study key.
+
+### Qualitative comparison
+
+The final presentation shows that reference guidance can add hidden details, but can also disrupt consistency across views. The Epoch 3 example preserves more useful detail than the final checkpoint, which shows stronger distortions.
+
+![Generated views for the baseline, Epoch 3, and final adapter](docs/images/qualitative-comparison.png)
+
+*Generated-view comparison from slide 7 of the final presentation.*
+
+### Study design
+
+- **Participants:** 12.
+- **Objects:** five: teddy bear, car, dog, My Sweet Piano plushie, and cat.
+- **Conditions:** three model outputs per object, presented using randomized numeric result labels.
+- **Coverage:** 180 complete participant–object–condition records (12 × 5 × 3), with four ratings per record. Each model has 60 ratings per criterion.
+- **Criteria:** overall quality, identity, hidden-view quality, and distortion.
+- **Scale:** 1–5. Higher is better for overall quality, identity, and hidden-view quality (1 = very poor, 5 = very good). For distortion, **lower is better** (1 = no visible distortion, 5 = high distortion).
+
+The numeric `method` column is an object-specific result label, not a fixed model ID. Scores were decoded using the study answer key before averaging. Blank trailing spreadsheet rows were excluded. Each participant–object rating receives equal weight.
+
+### Mean ratings
+
+| Model | Overall ↑ | Identity ↑ | Hidden view ↑ | Distortion ↓ |
+|---|---:|---:|---:|---:|
+| Base Zero123++ | **3.55** | **3.97** | 3.02 | **2.62** |
+| Epoch 3 adapter | 3.48 | 3.90 | **3.23** | 2.70 |
+| Final adapter | 2.95 | 3.62 | 2.83 | 3.27 |
+
+Means are rounded to two decimal places and reproduce slides 9–10 of the final presentation. Epoch 3 improves the mean hidden-view rating by 0.22 points over the baseline (computed before rounding), but its overall and identity ratings are slightly lower and its distortion rating is slightly higher. The final adapter has the lowest mean quality ratings and the highest distortion.
+
+### Hidden-view ratings by object
+
+| Object | Base Zero123++ | Epoch 3 adapter | Final adapter |
+|---|---:|---:|---:|
+| Teddy bear | **2.42** | 2.33 | 2.08 |
+| Car | **3.58** | 3.33 | 3.17 |
+| Dog | **3.67** | 3.00 | 2.67 |
+| My Sweet Piano plushie | 2.42 | **3.33** | 2.33 |
+| Cat | 3.00 | **4.17** | 3.92 |
+
+Each cell averages 12 ratings. Epoch 3 improves hidden-view ratings for two of the five objects: the plushie and cat. The baseline scores higher for the teddy bear, car, and dog. This supports the presentation's conclusion that the effect is object dependent.
+
+![Reconstructed cat from the front](docs/images/cat-front.png)
+![Reconstructed cat from the back](docs/images/cat-back.png)
+
+*Reconstructed cat comparisons. Columns show the baseline, Epoch 3, and final adapter.*
+
+### Discussion and limitations
+
+Epoch 3 had both the lowest recorded validation loss and the highest mean hidden-view rating among the three evaluated conditions. This does not establish that it is the best checkpoint for every object or criterion. The final presentation attributes the final adapter's distortions to excessive reference influence. The observed ratings support poorer final-checkpoint quality, but do not isolate its cause.
+
+The study is small: 12 participants and five objects. Ratings are repeated measurements from the same participants, not 180 independent participants. These are descriptive means; no statistical significance claim is made. Evaluation relies on human judgments and qualitative examples, without an objective geometry benchmark. Dataset size, quality and balance, adapter capacity, and downstream mesh reconstruction are further limitations. Unequal training data is a possible explanation for object-dependent performance, rather than a demonstrated causal result.
+
+**Conclusion:** Reference conditioning shows potential for improving hidden-view detail, but the proposed adapter is not consistently better than the baseline. Better control of reference strength and preservation of multi-view consistency are needed.
+
 
 ## Running the project
 
@@ -180,7 +239,7 @@ The [five-epoch config](configs/zero123plus-reference-adapter-objaverse-wide-500
 
 ### Compare generated views
 
-The evaluation script compares the baseline, the adapter without references, and the adapter with the supplied references. It resets the seed for each condition.
+This script is a separate reference-condition ablation, not the three-checkpoint user study above. It compares the baseline, the adapter without references, and the adapter with the supplied references. It resets the seed for each condition.
 
 ```bash
 python scripts/evaluate_reference_adapter_conditions.py \
